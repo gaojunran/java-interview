@@ -1,0 +1,113 @@
+---
+title: 002 Java 中 ConcurrentHashMap 1.7 和 1.8 之间有哪些区别？
+---
+
+`ConcurrentHashMap` 是 Java 中用于并发环境的线程安全哈希表容器。Java 7 和 Java 8 中的 `ConcurrentHashMap` 在**底层结构、锁的粒度与实现方式、并发性能、功能特性**等方面存在显著差异。下面是它们的**详细对比**：
+
+---
+
+## 🔧 1. 底层数据结构的变化
+
+### Java 7：
+
+* `Segment` + `HashEntry[]` 结构。
+* 整体上是一个 **分段锁（Segment）+ 哈希表（HashEntry）** 的组合：
+
+  * 整体数组由若干 `Segment` 组成。
+  * 每个 `Segment` 是一个小型的 `HashMap`，用 `ReentrantLock` 加锁。
+  * 每个 `Segment` 拥有自己的锁，实现分段加锁，提高并发性。
+
+> 🧱 图示结构：
+
+```
+ConcurrentHashMap
+  ├── Segment[0] -- lock
+  │      └── HashEntry[]
+  ├── Segment[1] -- lock
+  │      └── HashEntry[]
+  └── ...
+```
+
+### Java 8：
+
+* 彻底移除了 `Segment`，变成了一个**扁平的数组 + 链表/红黑树**结构。
+* 核心是一个 `Node<K, V>[] table` 数组，数组的每个桶可以是：
+
+  * 链表（当冲突少时）
+  * 红黑树（当冲突多时，链表长度超过 `TREEIFY_THRESHOLD`）
+
+---
+
+## 🔐 2. 锁机制
+
+### Java 7：
+
+* 使用多个 `Segment` 锁，**每个 Segment 加一把锁**，并通过 `ReentrantLock` 控制。
+* 并发度由 `concurrencyLevel` 决定（默认 16）。
+
+### Java 8：
+
+* 改为**CAS + synchronized** 控制：
+
+  * 表初始化和桶插入用 `CAS`。
+  * 插入时若遇到已有节点，则使用 `synchronized` 锁住桶头。
+* 锁粒度更细（具体到桶级别，不是段级别）。
+* **并发性能优于 Java 7**。
+
+---
+
+## 🌳 3. 链表与红黑树
+
+### Java 7：
+
+* 冲突的键值对全部挂在链表上。
+
+### Java 8：
+
+* 若某个桶上的链表长度超过 `TREEIFY_THRESHOLD`（默认为 8），并且 `table.length >= MIN_TREEIFY_CAPACITY`（默认 64），则链表转为红黑树。
+* 查找、插入性能从 **O(n)** 提升为 **O(log n)**，尤其在高冲突环境下性能更优。
+
+---
+
+## 🔁 4. resize 扩容机制
+
+### Java 7：
+
+* 每个 `Segment` 独立扩容。
+
+### Java 8：
+
+* 全表统一扩容。
+* 使用 **协助扩容机制**（transfer 协作）：
+
+  * 多个线程可以同时参与迁移数据，提升扩容效率。
+* 使用 `forwarding node` 标记已迁移节点。
+
+---
+
+## 📚 5. 新特性支持（Java 8 引入）
+
+* 支持 `forEach`, `reduce`, `search` 等 **并行操作**（使用 ForkJoinPool 实现）。
+* 支持 `compute`, `computeIfAbsent`, `merge` 等函数式 API，便于原子操作。
+* 更符合 Java 8 的函数式编程风格。
+
+---
+
+## ✅ 总结对比表：
+
+| 特性             | Java 7 `ConcurrentHashMap` | Java 8 `ConcurrentHashMap`    |
+| -------------- | -------------------------- | ----------------------------- |
+| 数据结构           | Segment + HashEntry\[]     | Node\[] + 链表/红黑树              |
+| 锁机制            | 分段锁 (ReentrantLock)        | CAS + synchronized            |
+| 并发度            | 由 Segment 数决定              | 由桶数量决定，粒度更细                   |
+| 树化支持           | ❌                          | ✅ 链表转红黑树                      |
+| 扩容方式           | 每个 Segment 独立扩容            | 多线程协作扩容，效率更高                  |
+| Java 8 函数式 API | ❌                          | ✅ compute / merge / forEach 等 |
+| 内存占用           | 较高（Segment 对象）             | 较低，结构更紧凑                      |
+| 性能             | 较低（锁粒度大）                   | 更高（锁粒度细）                      |
+
+---
+
+## 📌 结语
+
+Java 8 中的 `ConcurrentHashMap` 不再依赖于 `Segment` 分段锁，而是通过更细粒度的同步和现代化的结构设计（如红黑树），提高了性能与可扩展性，特别适合高并发场景。
