@@ -1,0 +1,121 @@
+---
+title: 004 	JDK 1.8 对 HashMap 除了红黑树还进行了哪些改动？
+---
+
+JDK 1.8 对 `HashMap` 的优化除了引入 **红黑树**（Treeify）来提升高冲突场景下的性能外，还做了若干重要的改动，主要集中在**性能优化**、**并发行为改善** 和 **内部实现逻辑的重构**方面。以下是详细讲解：
+
+---
+
+## 🔧 一、引入红黑树结构（Treeify）【核心改动】
+
+这是最显著的改变：
+当某个桶（bucket）中的链表长度超过阈值（默认为 `8`）并且数组长度 >= `64` 时，将该链表转化为红黑树，以将最坏情况的查找/插入/删除时间复杂度从 **O(n)** 降低为 **O(log n)**。
+
+* 触发 treeify 的条件：
+
+  * 链表长度 > 8 (`TREEIFY_THRESHOLD`)
+  * 数组长度 >= 64 (`MIN_TREEIFY_CAPACITY`)
+
+---
+
+## 🧱 二、数据结构 Node 的变化
+
+### 1. JDK 1.7 中桶元素是 `Entry<K,V>`：
+
+```java
+static class Entry<K,V> implements Map.Entry<K,V> {
+    final K key;
+    V value;
+    Entry<K,V> next;
+}
+```
+
+### 2. JDK 1.8 改为使用 `Node<K,V>`：
+
+```java
+static class Node<K,V> implements Map.Entry<K,V> {
+    final int hash;
+    final K key;
+    V value;
+    Node<K,V> next;
+}
+```
+
+此外还有：
+
+* `TreeNode<K,V>` 继承自 `Node<K,V>`，用于红黑树结构；
+* `HashMap` 在必要时在链表和树之间转换（treeify/untreeify）。
+
+---
+
+## 📌 三、resize（扩容）逻辑优化
+
+在 JDK 1.7，扩容时会**重新计算每个键的 hash 和位置**，成本较高。
+而 JDK 1.8 的优化点在于：
+
+### ✅ 1. 利用了高位 hash 的特性，避免重新计算 hash：
+
+* 如果桶内链表上的某个元素在原位置为 `i`，那么扩容后的位置要么还是 `i`，要么是 `i + oldCap`，**通过位运算快速判断**。
+
+### ✅ 2. 分别维护两个链表（loHead 和 hiHead）：
+
+```java
+Node<K,V> loHead = null, loTail = null;
+Node<K,V> hiHead = null, hiTail = null;
+```
+
+* 将原链表中的节点分到两个新桶，减少了内存复制成本和运算开销。
+
+---
+
+## 🔄 四、hash 扰动函数（hash spreading）优化
+
+JDK 1.8 中引入了新的扰动函数来减少 hash 冲突（不同 key 具有更好的分布性）：
+
+```java
+static final int hash(Object key) {
+    int h;
+    return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+}
+```
+
+* 把高位信息参与低位运算，避免只使用低位造成冲突过多；
+* 减少链表长度，提升命中效率。
+
+---
+
+## 🧵 五、提升并发环境的行为稳定性
+
+虽然 `HashMap` 本身不是线程安全的，但 JDK 1.8 的实现尝试避免了一些 **并发死循环（例如链表形成环）** 的问题：
+
+* 对节点插入、移动做了更精细的控制；
+* 明确在多线程场景下，某些不安全行为可能导致无限循环，并做了一定限制（虽然不能完全避免并发问题，还是建议用 `ConcurrentHashMap`）。
+
+---
+
+## 📥 六、lazy initialization（懒初始化）
+
+JDK 1.8 中的 `table` 数组延迟初始化，在第一次 `put` 操作时才分配内存，而非构造方法中直接分配：
+
+```java
+transient Node<K,V>[] table; // 延迟初始化
+```
+
+* 节省内存，提升性能。
+
+---
+
+## 📚 总结：JDK 1.8 中 HashMap 的主要改进点
+
+| 改进项       | 说明                      | 影响                  |
+| --------- | ----------------------- | ------------------- |
+| 红黑树       | 高冲突链表转红黑树               | 查找/插入效率提升到 O(log n) |
+| hash 扰动   | 使用高位异或低位                | 减少冲突，提高分布           |
+| resize 优化 | 高效位置计算 + 拆分链表           | 提升扩容效率              |
+| 懒初始化      | `table` 延迟分配            | 节省资源                |
+| 并发行为改善    | 防止并发死循环                 | 更稳定但非线程安全           |
+| 数据结构变化    | `Entry` 改为 `Node`，支持树结构 | 实现更灵活               |
+
+---
+
+继续提问：https://chatgpt.com/share/686b37e3-1ff8-8010-8d68-e3f7832a3b85

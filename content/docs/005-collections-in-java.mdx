@@ -1,0 +1,117 @@
+---
+title: 	005 Java 中有哪些集合类？请简单介绍
+---
+
+Java 中的集合类主要集中在 `java.util` 包中，按照功能可以分为 **三大类**：**List**、**Set** 和 **Map**，它们都基于 **Collection** 或 **Map** 接口设计。
+
+下面是集合体系的结构与主要实现类介绍：
+
+---
+
+## 🧱 一、Collection 接口体系（存储单个元素）
+
+### 1. List（有序、可重复）
+
+* **ArrayList**
+
+  * 底层是动态数组
+  * 查询效率高，插入/删除慢（涉及元素移动）
+  * 线程不安全，效率高
+
+* **LinkedList**
+
+  * 底层是双向链表
+  * 插入/删除效率高，查询慢
+  * 也实现了 `Deque` 接口，可作为栈/队列使用
+
+* **Vector**
+
+  * 底层是动态数组，线程安全（所有方法加了 `synchronized`）
+  * 效率较低，不推荐使用
+
+---
+
+### 2. Set（无序、不重复）
+
+* **HashSet**
+
+  * 底层是 HashMap，元素通过哈希值定位，查找/插入快
+  * 不保证元素顺序
+  * 允许 `null`
+
+* **LinkedHashSet**
+
+  * HashSet 的子类，底层是带有链表的 HashMap
+  * 保证插入顺序
+
+* **TreeSet**
+
+  * 基于红黑树（TreeMap 实现）
+  * 元素自动排序（自然排序或指定比较器）
+
+---
+
+### 3. Queue / Deque（队列/双端队列）
+
+* **PriorityQueue**
+
+  * 优先队列，内部是小顶堆（最小元素优先出队）
+
+* **ArrayDeque**
+
+  * 双端队列，底层是循环数组，效率高
+  * 替代 `Stack` 和 `LinkedList` 的首选
+
+* **LinkedList**
+
+  * 也实现了 `Deque`，可作为双端队列使用
+
+---
+
+## 🔁 二、Map 接口体系（存储键值对）
+
+### 1. HashMap
+
+* 基于数组 + 链表 + 红黑树（JDK 1.8 开始优化）
+* 允许一个 `null` 键和多个 `null` 值
+* 无序、不线程安全
+
+### 2. LinkedHashMap
+
+* 保持插入顺序
+* 内部维护一个双向链表
+
+### 3. TreeMap
+
+* 基于红黑树，按键排序
+* 不允许 `null` 键
+
+### 4. Hashtable（老旧，线程安全）
+
+* 早期的线程安全实现，所有方法都加了 `synchronized`
+* 不推荐使用，推荐使用 `ConcurrentHashMap`
+
+### 5. ConcurrentHashMap
+
+* 高并发场景下使用的线程安全 Map
+* JDK 1.8 用分段+CAS+synchronized 实现高性能
+
+---
+
+## ✅ 常见使用场景简表
+
+| 类型                | 是否有序 | 是否可重复   | 是否线程安全 | 适用场景    |
+| ----------------- | ---- | ------- | ------ | ------- |
+| ArrayList         | 是    | 是       | 否      | 查询频繁    |
+| LinkedList        | 是    | 是       | 否      | 插入/删除频繁 |
+| HashSet           | 否    | 否       | 否      | 快速去重    |
+| LinkedHashSet     | 是    | 否       | 否      | 保持顺序去重  |
+| TreeSet           | 排序   | 否       | 否      | 自动排序集合  |
+| HashMap           | 否    | Key 不重复 | 否      | 通用映射结构  |
+| TreeMap           | 排序   | Key 不重复 | 否      | 有序键值对   |
+| Hashtable         | 否    | Key 不重复 | 是      | 老旧并发场景  |
+| ConcurrentHashMap | 否    | Key 不重复 | 是      | 高并发场景   |
+
+---
+
+继续提问：https://chatgpt.com/share/686b38bb-f58c-8010-9d86-1e12c0f33161
