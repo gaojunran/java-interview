@@ -1,0 +1,80 @@
+---
+title: 006 MySQL 索引的最左前缀匹配原则是什么？
+---
+
+MySQL 索引的 **最左前缀匹配原则**（Leftmost Prefix Matching）是指：**复合索引（联合索引）在查询时，MySQL 优化器会从最左侧的列依次使用索引，只要中间没有“断层”，索引就可以被使用。**
+
+---
+
+## 🌟 简单解释
+
+举个例子：
+
+```sql
+-- 建了一个复合索引
+CREATE INDEX idx_user ON users (name, age, city);
+```
+
+这个索引 `(name, age, city)` 可以被以下查询使用：
+
+| 查询语句                                      | 能否使用索引 | 说明                   |
+| ----------------------------------------- | ------ | -------------------- |
+| `WHERE name = 'Tom'`                      | ✅      | 使用最左前缀               |
+| `WHERE name = 'Tom' AND age = 30`         | ✅      | 使用了最左的两列             |
+| `WHERE name = 'Tom' AND city = 'Beijing'` | ✅      | 仍能匹配前缀      |
+| `WHERE age = 30 AND city = 'Beijing'`     | ❌      | 没有使用最左前缀（跳过了 `name`） |
+| `WHERE city = 'Beijing'`                  | ❌      | 同上，跳过了前两列            |
+| `WHERE name LIKE 'To%'`                   | ✅      | 前缀匹配可以使用索引           |
+| `WHERE name LIKE '%om'`                   | ❌      | 前缀不是最左的，无法使用索引       |
+
+---
+
+## 🧠 原理理解
+
+在复合索引中，**索引项是按字段组合“拼接”成一个排序结构（如 B+ 树）**，MySQL 是按“从左到右”的顺序维护这些值的。
+
+例如复合索引 `(name, age, city)` 可能在索引结构中存储的项是这样的：
+
+```
+('Alice', 18, 'Beijing')
+('Alice', 20, 'Shanghai')
+('Bob', 22, 'Guangzhou')
+...
+```
+
+当你查询 `WHERE name = 'Alice' AND age = 20` 时，MySQL 可以快速定位到对应的区间查找。
+
+但如果你只查 `age = 20`，由于跳过了最前面的 `name`，MySQL 无法定位起点，只能全表或全索引扫描。
+
+---
+
+## ⚠️ 特别注意
+
+{/* ### 1. **不能跳列**
+
+即使你查询的字段在索引中有，但如果前面的列没出现，**也不能用索引**。
+
+```sql
+-- 错误用法：跳过了 name
+WHERE age = 20 AND city = 'Beijing' -- ❌ 不走索引
+``` */}
+
+**一旦遇到范围查询（比如 `<`, `>`, `BETWEEN`, `LIKE '%'`），后续字段不能用索引**。
+
+```sql
+WHERE name = 'Tom' AND age > 20 AND city = 'Beijing'
+```
+
+这时候，只会用到 `name` 和 `age`，不会用到 `city`。
+
+---
+
+## ✅ 实践建议
+
+1. **最常用的过滤字段放最前面**：例如 `WHERE name = ?` 最常见，就把 `name` 放在复合索引最左边。
+2. **避免跳跃字段查询**：确保查询条件按索引字段顺序使用。
+3. **谨慎使用范围查询**：范围查询后面的字段不会使用索引，要注意顺序。
+
+---
+
+继续提问：https://chatgpt.com/share/686cdff9-8dd0-8010-8d58-10bad4642ca7
