@@ -1,0 +1,230 @@
+---
+title: 015 RabbitMQ 怎么实现延迟队列？
+---
+
+下面我用 **Spring Boot + RabbitMQ** 的方式，给你详细讲讲如何实现延迟队列。
+
+---
+
+## 方法一：TTL + 死信队列方式
+
+这是最常用且不需要插件的方式。
+
+### 🧠 核心原理：
+
+1. 消息发送到一个 **“延迟队列”（其实是普通队列）** ，设置 TTL（Time-To-Live）过期时间。
+2. 消息过期后，会被 RabbitMQ 自动投递到**死信交换机（Dead Letter Exchange）**。
+3. 死信交换机绑定的另一个队列，就是你真正的“处理队列”。
+4. 消息延迟到期后，才会到达消费者能消费的队列。
+
+---
+
+### 1. 添加依赖（pom.xml）
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-amqp</artifactId>
+</dependency>
+```
+
+---
+
+### 2. 配置队列和交换机
+
+```java
+@Configuration
+public class RabbitConfig {
+
+    public static final String DELAY_QUEUE = "delay.queue";
+    public static final String DELAY_EXCHANGE = "delay.exchange";
+    public static final String DELAY_ROUTING_KEY = "delay.routingkey";
+
+    public static final String PROCESS_QUEUE = "process.queue";
+    public static final String PROCESS_EXCHANGE = "process.exchange";
+    public static final String PROCESS_ROUTING_KEY = "process.routingkey";
+
+    // 2.1 声明延迟队列，设置 TTL 和死信交换机
+    @Bean
+    public Queue delayQueue() {
+        Map<String, Object> args = new HashMap<>();
+        // 消息过期后转发的交换机
+        args.put("x-dead-letter-exchange", PROCESS_EXCHANGE);
+        // 转发时使用的路由键
+        args.put("x-dead-letter-routing-key", PROCESS_ROUTING_KEY);
+        // 设置队列中消息的过期时间，单位毫秒 (可选，单条消息也可以设置TTL覆盖这里)
+        args.put("x-message-ttl", 60000); // 60秒
+        return new Queue(DELAY_QUEUE, true, false, false, args);
+    }
+
+    // 2.2 声明真实处理队列
+    @Bean
+    public Queue processQueue() {
+        return new Queue(PROCESS_QUEUE);
+    }
+
+    // 2.3 交换机声明
+    @Bean
+    public DirectExchange delayExchange() {
+        return new DirectExchange(DELAY_EXCHANGE);
+    }
+
+    @Bean
+    public DirectExchange processExchange() {
+        return new DirectExchange(PROCESS_EXCHANGE);
+    }
+
+    // 2.4 队列绑定交换机
+    @Bean
+    public Binding delayBinding() {
+        return BindingBuilder.bind(delayQueue()).to(delayExchange()).with(DELAY_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding processBinding() {
+        return BindingBuilder.bind(processQueue()).to(processExchange()).with(PROCESS_ROUTING_KEY);
+    }
+}
+```
+
+---
+
+### 3. 发送消息（延迟消息）
+
+* 这里消息发到 `delay.exchange`，路由到 `delay.queue`。
+* 消息在 `delay.queue` 队列中过期后，会被自动转发到 `process.exchange`，并路由到 `process.queue`。
+
+```java
+@Service
+public class DelaySender {
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    public void sendDelayMsg(String msg) {
+        // 发送消息，默认走 delay.exchange + delay.routingkey
+        rabbitTemplate.convertAndSend(
+            RabbitConfig.DELAY_EXCHANGE,
+            RabbitConfig.DELAY_ROUTING_KEY,
+            msg,
+            message -> {
+                // 这里可以单独设置每条消息的TTL（覆盖队列的TTL）
+                message.getMessageProperties().setExpiration("30000"); // 30秒延迟
+                return message;
+            });
+    }
+}
+```
+
+---
+
+### 4. 消费消息
+
+```java
+@Component
+public class ProcessConsumer {
+
+    @RabbitListener(queues = RabbitConfig.PROCESS_QUEUE)
+    public void receive(String msg) {
+        System.out.println("收到延迟消息: " + msg);
+        // 这里处理业务逻辑
+    }
+}
+```
+
+---
+
+## 方法二：使用 RabbitMQ 延迟插件 `x-delayed-message`
+
+### 🔧 原理：
+
+* 创建一个自定义类型为 `x-delayed-message` 的交换机。
+* 发送消息时，指定 header 中的 `x-delay` 时间（毫秒）。
+* RabbitMQ 内部帮你延迟投递，不需要中间队列或 DLX。
+
+---
+
+### 1. 启用插件（在RabbitMQ服务器执行）
+
+```bash
+rabbitmq-plugins enable rabbitmq_delayed_message_exchange
+```
+
+---
+
+### 2. Spring Boot 配置自定义交换机
+
+```java
+@Bean
+public CustomExchange delayedExchange() {
+    Map<String, Object> args = new HashMap<>();
+    args.put("x-delayed-type", "direct");
+    return new CustomExchange("delayed.exchange", "x-delayed-message", true, false, args);
+}
+
+@Bean
+public Queue delayedQueue() {
+    return new Queue("delayed.queue");
+}
+
+@Bean
+public Binding delayedBinding() {
+    return BindingBuilder.bind(delayedQueue()).to(delayedExchange()).with("delayed.routingkey").noargs();
+}
+```
+
+---
+
+### 3. 发送带延迟的消息
+
+```java
+@Service
+public class DelayedMessageSender {
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    public void sendDelayedMessage(String message, int delayTimeMillis) {
+        rabbitTemplate.convertAndSend(
+            "delayed.exchange",
+            "delayed.routingkey",
+            message,
+            msg -> {
+                msg.getMessageProperties().setHeader("x-delay", delayTimeMillis);
+                return msg;
+            }
+        );
+    }
+}
+```
+
+---
+
+### 4. 消费者监听队列
+
+```java
+@Component
+public class DelayedMessageConsumer {
+
+    @RabbitListener(queues = "delayed.queue")
+    public void receive(String msg) {
+        System.out.println("收到插件延迟消息: " + msg);
+        // 业务处理
+    }
+}
+```
+
+---
+
+# 总结
+
+| 方案                       | 优点                 | 缺点               |
+| ------------------------ | ------------------ | ---------------- |
+| TTL + DLX                | 不依赖插件，简单，普遍使用      | 延迟时间队列级别，单条消息不灵活 |
+| 延迟插件 `x-delayed-message` | 精确控制每条消息延迟时间，API简单 | 需要安装插件，运维成本稍高    |
+
+
+---
+
+
+继续提问：https://chatgpt.com/share/686d3687-0d70-8010-bac5-e91d2c7bcf57

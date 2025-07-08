@@ -1,0 +1,152 @@
+---
+title: 014 	MySQL 中使用索引一定有效吗？如何排查索引效果？
+---
+
+不一定。**MySQL 中使用索引并不总是有效**，有时候即使你建了索引，MySQL 也可能**不会使用**，或者**使用了效果反而更差**。
+
+我们来详细讲讲为什么使用索引不一定有效、以及如何排查索引效果：
+
+---
+
+## 一、为什么使用索引不一定有效？
+
+即使创建了索引，也可能不会被使用，或者使用后效果不好，常见原因有：
+
+### 1. 查询条件不满足索引使用规则
+
+* **没有命中最左前缀规则**（适用于联合索引）
+* 示例：
+
+  ```sql
+  -- 联合索引 (a, b)
+  SELECT * FROM t WHERE b = 1; -- 不会用到索引
+  ```
+
+### 2. 查询条件计算导致索引失效
+
+* 示例：
+
+  ```sql
+  SELECT * FROM t WHERE YEAR(create_time) = 2023; -- 不用索引
+  ```
+
+  因为 `YEAR(create_time)` 是函数，对列做了计算。
+
+### 3. 类型不一致，隐式转换
+
+* 示例：
+
+  ```sql
+  SELECT * FROM t WHERE id = '123'; -- id 是 int，'123' 是字符串，可能索引失效
+  ```
+
+### 4. 数据分布不均，索引选择性低
+
+* 如果索引列的数据重复太多（如性别、状态字段），使用索引反而会比全表扫描更慢。
+
+### 5. 覆盖索引未命中或回表太多
+
+* 如果查询列不在索引中，就需要**回表**，对于大量回表的情况性能可能变差。
+
+### 6. 使用了 `OR` 条件
+
+* 有些 `OR` 查询无法同时使用多个索引，会退化为全表扫描。
+
+### 7. 使用了 `%前缀` 的模糊匹配
+
+* 示例：
+
+  ```sql
+  SELECT * FROM t WHERE name LIKE '%abc'; -- 无法使用索引
+  ```
+
+---
+
+## 二、如何判断和排查索引是否有效？
+
+### ✅ 1. 使用 `EXPLAIN` 查看执行计划
+
+执行查询前加上：
+
+```sql
+EXPLAIN SELECT * FROM t WHERE id = 123;
+```
+
+重点看几个字段：
+
+| 字段      | 含义                                                        |
+| ------- | --------------------------------------------------------- |
+| `type`  | 访问类型，越靠近 `const` 越好                                       |
+| `key`   | 使用了哪个索引                                                   |
+| `rows`  | 预估扫描行数，越少越好                                               |
+| `Extra` | 是否用到 `Using index`（覆盖索引）、`Using where`、`Using filesort` 等 |
+
+示例解释：
+
+```sql
+id: 1
+select_type: SIMPLE
+table: t
+type: const
+key: PRIMARY
+rows: 1
+Extra: Using index
+```
+
+表示：使用了主键索引，全索引覆盖，效率非常高。
+
+---
+
+### ✅ 2. 查看 `SHOW PROFILE` 分析性能细节
+
+开启 profile：
+
+```sql
+SET profiling = 1;
+SELECT * FROM t WHERE id = 123;
+SHOW PROFILES;
+SHOW PROFILE FOR QUERY 1;
+```
+
+能看到每个阶段消耗的时间，比如 parsing、optimizing、executing、sending data 等。
+
+---
+
+### ✅ 3. 打开慢查询日志 + `SHOW STATUS`
+
+启用慢查询日志，并观察：
+
+```sql
+SHOW VARIABLES LIKE 'slow_query_log%';
+SHOW STATUS LIKE 'Handler_read%';
+```
+
+* `Handler_read_key`：通过索引定位行的次数（值高是好事）
+* `Handler_read_rnd_next`：全表扫描的次数（值高说明索引可能失效）
+
+---
+
+## 三、如何优化索引使用？
+
+1. **遵循最左前缀原则**
+2. **避免对列做函数或类型转换**
+3. **尽量使用覆盖索引**
+4. **优化数据分布，提高索引选择性**
+5. **必要时使用 FORCE INDEX 强制使用索引**
+
+   ```sql
+   SELECT * FROM t FORCE INDEX (idx_name) WHERE name = 'abc';
+   ```
+
+---
+
+## 总结
+
+| 是否使用索引？ | 判断方法                       | 优化手段          |
+| ------- | -------------------------- | ------------- |
+| 不一定     | `EXPLAIN` / `SHOW PROFILE` | 覆盖索引、调整查询写法   |
+| 可能效果更差  | `Handler_read_rnd_next` 过高 | 加强索引选择性、重新建索引 |
+
+---
+
+继续提问：https://chatgpt.com/share/686d2fa2-01d8-8010-8be0-3bf9631a4190
