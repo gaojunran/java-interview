@@ -1,0 +1,147 @@
+---
+title: 028 说一下 Kafka 中关于事务消息的实现？
+---
+
+Kafka 的事务消息是为了解决“**消息生产和消费的原子性**”问题，即确保一组消息要么全部成功，要么全部失败。Kafka 的事务机制主要应用于以下场景：
+
+* **Exactly-once 语义（EOS）**：确保每条消息被处理一次且仅一次（无重复、无丢失）。
+* **跨分区/跨 topic 的原子性写入**：一组消息写入多个 topic/分区时，要么全部成功，要么全部失败。
+* **支持消费-再生产场景的事务一致性**：比如消费 topicA 的消息，处理后再写入 topicB，确保处理是幂等且一致的。
+
+---
+
+## 一、Kafka 事务实现核心组件
+
+1. **Producer ID（PID）**
+
+   * Kafka 为每个支持事务的 Producer 分配一个唯一的 PID。
+   * 用于标识 Producer 的生命周期，防止断线重连后产生混乱。
+
+2. **事务协调器（Transaction Coordinator）**
+
+   * 是 Kafka 集群中负责管理事务状态的角色。
+   * 每个事务性的 Producer 在初始化时会被绑定到一个事务协调器。
+   * 事务状态保存在特殊的 `__transaction_state` 内部 topic 中。
+
+3. **事务日志（Transaction Log）**
+
+   * 用于持久化每个事务的状态（begin、prepare commit、abort）。
+   * 存储在 `__transaction_state` topic 中，由事务协调器管理。
+
+4. **幂等性 Producer（Idempotent Producer）**
+
+   * Kafka 0.11 开始支持幂等性写入，确保相同的消息不会被重复写入。
+   * 幂等性是事务的基础（每个事务性的 producer 都必须启用幂等性）。
+
+---
+
+## 二、事务写入流程
+
+以下是一个典型的事务性写入流程：
+
+1. **初始化事务**
+
+   * 调用 `initTransactions()`。
+   * Producer 获取 PID，并向事务协调器注册。
+
+2. **开始事务**
+
+   * 调用 `beginTransaction()`。
+
+3. **发送消息**
+
+   * 调用 `send()` 向一个或多个 topic/partition 发送消息。
+   * Kafka 会将这些消息标记为“事务中”，消费者暂时看不到（未提交）。
+
+4. **提交或中止事务**
+
+   * 调用 `commitTransaction()` 提交事务，或 `abortTransaction()` 中止事务。
+   * Coordinator 会将该事务状态写入 `__transaction_state`，并通知对应分区将消息标记为可见（或丢弃）。
+
+---
+
+## 三、消费者如何处理事务消息？
+
+事务性消息对消费者也有特殊处理：
+
+* **消费者只能看到已提交的事务消息**。
+* Consumer 配置 `isolation.level`：
+
+  * `read_uncommitted`（默认）：消费所有消息（包括未提交事务中的消息）。
+  * `read_committed`：只消费已提交的事务消息，避免脏读。
+
+---
+
+## 四、事务一致性的典型场景：消费-再生产（Consume-Transform-Produce）
+
+比如：
+
+* 从 topicA 消费数据；
+* 经过处理；
+* 写入 topicB。
+
+这中间需要保证“**要么处理成功并写入结果**，**要么什么都不做**”。
+
+Kafka 支持这种场景的事务方式如下：
+
+```java
+producer.initTransactions();
+
+while (true) {
+    ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
+    producer.beginTransaction();
+
+    for (ConsumerRecord<String, String> record : records) {
+        // process record
+        producer.send(new ProducerRecord<>("output-topic", transformedValue));
+    }
+
+    // 把消费位移也作为事务的一部分提交
+    Map<TopicPartition, OffsetAndMetadata> offsets = ...;
+    producer.sendOffsetsToTransaction(offsets, consumerGroupId);
+
+    producer.commitTransaction();
+}
+```
+
+> 这个过程中，消费位移和生产消息属于 **同一个事务**，确保了端到端的一致性。
+
+---
+
+## 五、事务状态管理细节
+
+事务状态主要包括：
+
+| 状态               | 说明       |
+| ---------------- | -------- |
+| `ONGOING`        | 正在进行中的事务 |
+| `PREPARE_COMMIT` | 准备提交     |
+| `COMMITTED`      | 已提交      |
+| `ABORTED`        | 已中止      |
+| `COMPLETE`       | 事务已完成清理  |
+
+Coordinator 会通过事务日志确保事务状态在故障恢复后也不丢失。
+
+---
+
+## 六、Kafka 事务的限制和注意事项
+
+1. **性能开销**：事务操作比普通写入慢，适合对一致性要求高的场景。
+2. **最大事务时间**：需要配置 `transaction.timeout.ms`，超时会被自动中止。
+3. **事务状态 topic 不可删除**：`__transaction_state` 是 Kafka 内部维护事务必要的，不能手动删除。
+4. **消费者必须启用 read\_committed 才能屏蔽未提交数据。**
+5. **不支持跨 Kafka 集群的事务。**
+
+---
+
+## 七、事务 vs 幂等性 vs ACK
+
+| 特性        | 保证               | 使用场景      |
+| --------- | ---------------- | --------- |
+| 幂等性       | 防止重复写入           | 简单写入、单分区写 |
+| 事务        | 多条消息原子性写入，支持 EOS | 批量写、消费再生产 |
+| ACK（确认机制） | 消息投递确认           | 保证消息投递可靠性 |
+
+---
+
+继续提问：https://chatgpt.com/share/686de7c4-73d4-8010-89eb-000fa10729f3

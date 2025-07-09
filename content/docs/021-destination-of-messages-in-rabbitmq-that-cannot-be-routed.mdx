@@ -1,0 +1,90 @@
+---
+title: 021 	RabbitMQ 中无法路由的消息会去到哪里？
+---
+
+在 RabbitMQ 中，如果一条消息无法被路由到任何队列，它的去向取决于 **交换机的配置** 和 **消息的属性**。我们可以分几种情况来详细讲讲：
+
+---
+
+## ✅ 1. 默认行为：消息被丢弃
+
+如果：
+
+* 消息发送到的交换机是存在的
+* 但路由键找不到匹配的队列绑定
+
+默认情况下，**消息会被直接丢弃，不会通知生产者，也不会报错。**
+
+---
+
+## ✅ 2. 设置 `mandatory` 标志：返回给生产者
+
+如果发送消息时设置了 `mandatory=true`，那么当消息无法被路由时：
+
+* **Broker 会通过 Basic.Return 命令将消息返回给生产者（而不是丢弃）**
+* 这通常配合生产者的 return callback 一起使用（在 Spring AMQP 中很常见）
+
+### 示例代码（Java/Spring）：
+
+```java
+rabbitTemplate.setMandatory(true);
+rabbitTemplate.setReturnCallback((message, replyCode, replyText, exchange, routingKey) -> {
+    System.out.println("消息无法路由，已退回：" + new String(message.getBody()));
+});
+```
+
+---
+
+## ✅ 3. 使用 **备份交换机（Alternate Exchange）**
+
+RabbitMQ 支持给交换机设置一个 **备份交换机（alternate-exchange）**，用于接收那些无法路由的消息。
+
+### 配置方式（Java / AMQP）：
+
+```java
+Map<String, Object> args = new HashMap<>();
+args.put("alternate-exchange", "backup.exchange");
+
+channel.exchangeDeclare("main.exchange", "direct", true, false, args);
+```
+
+如果消息无法匹配任何绑定的队列，就会被发送到 `"backup.exchange"`，而不是丢弃。
+
+> ⚠️ 注意：这是针对交换机级别的配置，而不是针对消息本身。
+
+---
+
+## ❌ 4. 发送到 **死信交换机（DLX）** ：**不适用于无法路由的场景**
+
+很多人会误以为无法路由的消息会被转发到 **死信交换机**（DLX），但 **这是错误的**。
+
+**死信交换机只处理以下三种情况：**
+
+* 队列满（队列达到最大长度）
+* 消息 TTL 过期
+* 消费者 reject 消息，并且 `requeue=false`
+
+> ✴️ **消息无法被路由到任何队列，不属于“死信”的范畴，因此不会进入 DLX。**
+
+---
+
+## 🧠 总结对比：
+
+| 情况                          | 消息去向          |
+| --------------------------- | ------------- |
+| 无法路由，`mandatory=false`      | 被丢弃           |
+| 无法路由，`mandatory=true`       | 被退回给生产者       |
+| 无法路由，有 `alternate-exchange` | 发送到备份交换机      |
+| 死信（TTL/拒绝等）                 | 转发到死信交换机（DLX） |
+
+---
+
+如果你希望消息 **不被默默丢弃**，你可以这样做：
+
+* 发送时加 `mandatory=true`
+* 给交换机设置 `alternate-exchange`
+* 在备份交换机中绑定日志队列或报警机制，监控问题消息
+
+---
+
+继续提问：https://chatgpt.com/share/686dd419-4b60-8010-8b30-72967e54badf

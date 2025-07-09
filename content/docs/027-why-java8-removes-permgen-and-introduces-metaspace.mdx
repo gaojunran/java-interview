@@ -1,0 +1,82 @@
+---
+title: 027 为什么 Java 8 移除了永久代（PermGen）并引入了元空间（Metaspace）？
+---
+
+
+Java 8 移除了**永久代（PermGen）**并引入了**元空间（Metaspace）**，主要原因是为了**解决 PermGen 的种种问题，提升 JVM 的稳定性和可维护性**。下面详细说明这个变更背后的原因。
+
+---
+
+## 🔥 一、PermGen 的问题
+
+PermGen（Permanent Generation）是 HotSpot JVM 特有的，用于存放：
+
+* 类的元信息（类的结构、方法名、字段等）
+* 静态变量
+* 常量池
+* JIT 编译器生成的代码等
+
+### ✅ 1. 固定大小、难以调优
+
+* PermGen 空间大小是固定的（`-XX:PermSize` 和 `-XX:MaxPermSize`）
+* 一旦设置不当，可能导致 **`OutOfMemoryError: PermGen space`**
+* 对于大量动态加载类的应用（如 Tomcat 部署多个 webapp），非常容易内存溢出
+
+### ✅ 2. 类卸载困难，容易内存泄漏
+
+* PermGen 的 GC 策略比较保守，类卸载依赖复杂的条件
+* 一些 classloader 无法释放，容易导致 **内存泄漏**
+* 热部署、插件式开发频繁加载类时问题尤为明显
+
+### ✅ 3. 与 JVM 实现强耦合
+
+* PermGen 是 HotSpot 的私有实现，其他 JVM（如 JRockit）并没有
+* 这导致 Java 生态跨 JVM 不一致，增加维护成本
+
+---
+
+## 🌟 二、Metaspace 的改进
+
+从 Java 8 开始，**PermGen 被彻底移除**，取而代之的是 **Metaspace**。
+
+### ✅ 1. Metaspace 不在堆内存中
+
+* Metaspace 是在 **本地内存（Native Memory）中分配**，不再受 Java 堆大小限制
+* 默认情况下大小**按需扩展**，通过 `-XX:MaxMetaspaceSize` 控制最大值
+
+### ✅ 2. 类元信息管理更高效
+
+* 使用本地内存意味着 **更灵活的内存管理**
+* 类卸载变得更加容易，**JVM 能更主动地释放类元信息**
+
+### ✅ 3. 减少内存泄漏风险
+
+* 避免了 PermGen 中因为类加载器引用等导致的泄漏问题
+* 特别适合应用服务器、动态加载模块的场景（如 Tomcat、OSGi）
+
+---
+
+## ⚙️ 三、配置对比示意
+
+| JVM 参数  | Java 7（PermGen）   | Java 8+（Metaspace）     |
+| ------- | ----------------- | ---------------------- |
+| 初始大小    | `-XX:PermSize`    | `-XX:MetaspaceSize`    |
+| 最大大小    | `-XX:MaxPermSize` | `-XX:MaxMetaspaceSize` |
+| 是否可自动扩展 | 否（需手动设置）          | 是（默认无限）                |
+| 内存区域    | Java 堆            | 本地内存                   |
+
+---
+
+## ✅ 总结
+
+Java 8 移除 PermGen 引入 Metaspace 的根本原因：
+
+* PermGen 太难调优，类卸载困难，易内存泄漏
+* 与 JVM 实现耦合严重，不利于标准化
+* Metaspace 使用本地内存，更灵活、更稳定、更高效
+
+> 🔍 所以，这是一次 **兼容性破坏换来实用性提升** 的设计变更，是 JVM 演化中的重要一步。
+
+---
+
+继续提问：https://chatgpt.com/share/686de1e0-e47c-8010-ae8e-f21f01315c30

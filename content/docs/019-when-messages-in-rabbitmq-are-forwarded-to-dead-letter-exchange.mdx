@@ -1,0 +1,123 @@
+---
+title: 019 RabbitMQ 中消息什么时候会进入死信交换机？
+---
+
+在 RabbitMQ 中，**消息会在特定情况下被转发到死信交换机（Dead Letter Exchange，DLX）**。这不是 RabbitMQ 的默认行为，而是你需要显式为队列配置好死信交换机。下面我会详细讲讲 **死信的触发条件、DLX 的配置过程，以及其使用场景**。
+
+---
+
+## 一、什么是死信交换机（DLX）？
+
+死信交换机是一种普通的交换机（Exchange），只不过它**接收的是一些无法被正常消费的消息**，也就是所谓的“死信（Dead Letter）”。
+
+你可以为一个队列设置一个“死信交换机”和对应的“死信路由键”，当这个队列中有消息变成“死信”时，就会被转发到 DLX。
+
+---
+
+## 二、什么情况下消息会成为死信？
+
+RabbitMQ 中，有以下几种情况会使消息进入死信队列：
+
+### 1. 消息被拒绝（`basic.reject` 或 `basic.nack`），且 **`requeue = false`**
+
+* 消费者显式拒绝消息，但不让它重新回到队列。
+* 这通常表示：这个消息无法处理，干脆放弃。
+
+```rust
+channel.basic_reject(delivery_tag, false); // false 表示不重新入队
+```
+
+### 2. 消息过期（TTL，Time-To-Live 到期）
+
+* 消息设置了过期时间（可以在队列级别或消息级别设置），
+* 如果在过期时间内没有被消费，就会被丢入死信队列。
+
+### 3. 队列达到最大长度限制
+
+* 队列设置了最大消息数（`x-max-length`）或者最大内存（`x-max-length-bytes`），
+* 一旦超过，最早进入的消息会被丢弃并作为死信转发到 DLX。
+
+---
+
+## 三、死信交换机的配置步骤
+
+### 1. 给队列绑定死信交换机
+
+声明一个普通队列时，可以为其添加如下参数：
+
+```json
+{
+  "x-dead-letter-exchange": "my-dlx",          // 死信交换机的名字
+  "x-dead-letter-routing-key": "dead.key"      // 死信的路由键（可选）
+}
+```
+
+示例（使用 Java/Spring AMQP 或其它语言时类似）：
+
+```rust
+channel.queue_declare(
+    "main.queue",   // 队列名称
+    false,          // durable: 是否持久化队列（false 表示不持久化，服务重启后丢失队列）
+    true,           // exclusive: 是否排他队列（true 表示只允许当前连接使用，连接断开后自动删除）
+    false,          // autoDelete: 是否自动删除（false 表示不自动删除）
+    false,          // noWait: 是否异步（false 表示等待服务器响应）
+    {
+        "x-dead-letter-exchange": "my-dlx",       // 死信交换机的名称，发生死信时将消息发送到该交换机
+        "x-dead-letter-routing-key": "dead.key"   // 指定死信的路由键（可选），DLX 会用这个 routing key 路由消息
+    }
+);
+
+```
+
+### 2. 声明死信交换机和死信队列，并绑定
+
+```rust
+channel.exchange_declare("my-dlx", "direct", true);
+channel.queue_declare("dead.queue", true, false, false, false, {});
+channel.queue_bind("dead.queue", "my-dlx", "dead.key");
+```
+
+---
+
+## 四、应用场景
+
+### ✅ 重试机制
+
+* 消费失败的消息可以先进入死信队列，然后由专门的逻辑重新投递，带有延迟，避免服务雪崩。
+
+### ✅ 异常监控
+
+* 死信队列可以作为异常告警的来源。发现某些消息总是进入死信队列，可以触发报警。
+
+### ✅ 延迟队列的实现（借助 TTL + DLX）
+
+---
+
+## 五、可视化理解：消息流程图
+
+```
+Producer --> Exchange --> Queue --> Consumer
+                        ↑
+                     失败/TTL/溢出
+                        ↓
+                     Dead Letter Exchange (DLX)
+                        ↓
+                     Dead Letter Queue (DLQ)
+```
+
+---
+
+## 六、总结
+
+| 死信触发条件 | 描述                                               |
+| ------ | ------------------------------------------------ |
+| 消息被拒绝  | 消费者 `basic.reject` 或 `basic.nack(requeue=false)` |
+| 消息过期   | TTL 到期未被消费                                       |
+| 队列超长   | 达到队列 `x-max-length` 或 `x-max-length-bytes` 限制    |
+
+你需要为队列绑定 DLX 和 DLQ 才能使这些机制生效。
+
+---
+
+继续提问：https://chatgpt.com/share/686dcd8e-fddc-8010-b9cf-ab1a5e37cfad
+

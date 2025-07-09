@@ -1,0 +1,141 @@
+---
+title: 026 	MySQL 是如何实现事务的？
+---
+
+MySQL 实现事务，主要依赖于 **InnoDB 存储引擎**，它提供了对 **ACID 特性**（原子性、一致性、隔离性、持久性）的支持。事务的实现涉及多个关键技术组件，包括：**Undo Log、Redo Log、MVCC、锁机制**等。
+
+我们从几个维度详细讲解：
+
+---
+
+## 一、事务的四大特性 ACID
+
+| 特性               | 说明                   |
+| ---------------- | -------------------- |
+| 原子性（Atomicity）   | 事务中的操作要么全部成功，要么全部失败。 |
+| 一致性（Consistency） | 事务执行前后，数据库必须处于一致状态。  |
+| 隔离性（Isolation）   | 多个事务并发执行时，互不干扰。      |
+| 持久性（Durability）  | 事务提交后，对数据的修改是永久性的。   |
+
+---
+
+## 二、事务的关键实现机制
+
+### 1. **Undo Log（回滚日志）**：用于原子性和一致性
+
+* **作用**：记录事务对数据的修改“之前”的值，用于事务回滚。
+* **类型**：
+
+  * Insert Undo Log：插入操作
+  * Update/Delete Undo Log：更新或删除操作
+* **特点**：
+
+  * 撤销操作可以基于 Undo Log 回滚数据。
+  * MVCC 读取“旧版本”数据也是靠它。
+
+---
+
+### 2. **Redo Log（重做日志）**：用于持久性
+
+* **作用**：保证事务提交后的数据即使崩溃也不会丢失。
+
+* **过程**：
+
+  1. 修改数据时，先记录 Redo Log（物理日志）。
+  2. Redo Log 写完后再提交事务。
+  3. 崩溃时可用 Redo Log 进行恢复。
+
+* **WAL 机制（Write-Ahead Logging）**：
+
+  * 修改先写日志（Redo Log），再写磁盘。
+  * 减少随机 I/O，提高效率。
+
+---
+
+### 3. **MVCC（多版本并发控制）**：用于实现高并发下的隔离性
+
+* **作用**：解决读写冲突，实现 **非阻塞读（快照读）**。
+* **实现方式**：
+
+  * 每条记录都有两个隐藏字段：`trx_id`（创建者事务 ID） 和 `roll_pointer`（指向 Undo Log）。
+  * 事务读取数据时，通过判断当前事务的视图（Read View）来决定是否可见。
+* **适用隔离级别**：`Read Committed` 和 `Repeatable Read`
+
+---
+
+### 4. **锁机制**：用于实现隔离性（与 MVCC 互补）
+
+* **锁的类型**：
+
+  * **行锁（Record Lock）**：锁定某一行数据（InnoDB 支持）
+  * **表锁（Table Lock）**：锁定整张表（MyISAM 支持）
+* **行锁又分**：
+
+  * **共享锁（S 锁）**：读锁，允许并发读
+  * **排他锁（X 锁）**：写锁，不允许其它事务访问
+* **意向锁**：InnoDB 使用意向锁（IS、IX）来提升加锁效率，配合行锁使用。
+
+---
+
+### 5. **事务隔离级别**
+
+通过 `SET [GLOBAL | SESSION] TRANSACTION ISOLATION LEVEL ...` 设置：
+
+| 隔离级别                | 说明   | 是否使用 MVCC |
+| ------------------- | ---- | --------- |
+| Read Uncommitted    | 读未提交 | 否         |
+| Read Committed      | 读已提交 | 是         |
+| Repeatable Read（默认） | 可重复读 | 是         |
+| Serializable        | 串行化  | 否（加锁）     |
+
+---
+
+## 三、事务的执行过程（顺序）
+
+以一个简单的更新操作为例：
+
+```sql
+BEGIN;
+UPDATE account SET balance = balance - 100 WHERE id = 1;
+UPDATE account SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+```
+
+执行过程如下：
+
+1. 事务开始（BEGIN）时，InnoDB 分配一个全局唯一的 `trx_id`。
+2. 执行第一条 `UPDATE`：
+
+   * 读取数据生成旧值。
+   * 写 Undo Log（保存旧值）。
+   * 修改内存页（Buffer Pool），写 Redo Log。
+3. 执行第二条 `UPDATE`，同上。
+4. 执行 `COMMIT`：
+
+   * 写 Redo Log 的 **提交标记（COMMIT）**。
+   * Redo Log 持久化（刷盘）。
+5. 提交成功。若中途崩溃，可用 Redo Log 恢复。
+
+---
+
+## 四、异常场景：崩溃恢复
+
+InnoDB 在重启时，会进行 **crash recovery**，分两步：
+
+1. **Redo 恢复**：用 Redo Log 重做已经提交但尚未持久化的数据。
+2. **Undo 回滚**：对未提交事务，利用 Undo Log 回滚。
+
+---
+
+## 五、小结
+
+| 功能  | 技术实现                |
+| --- | ------------------- |
+| 原子性 | Undo Log            |
+| 一致性 | Undo Log + MVCC + 锁 |
+| 隔离性 | MVCC + 锁机制 + 隔离级别   |
+| 持久性 | Redo Log            |
+
+---
+
+继续提问：https://chatgpt.com/share/686de045-0f6c-8010-a8d3-fe8efe1741a1

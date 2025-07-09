@@ -1,0 +1,115 @@
+---
+title: 025 Kafka 中 Zookeeper 的作用？
+---
+
+Kafka 在早期版本（Kafka 2.x 及以前）中使用 **Zookeeper** 来进行集群协调和元数据管理。虽然 Kafka 从 2.8 开始已经支持不依赖 Zookeeper 的“**KRaft 模式（Kafka Raft）**”，但很多 Kafka 集群仍在使用 Zookeeper，因此了解它的作用非常重要。
+
+---
+
+## 一、Zookeeper 在 Kafka 中的作用
+
+Zookeeper 在 Kafka 中的核心作用可以归纳为以下几点：
+
+---
+
+### 1. **管理 Broker 的注册与状态**
+
+Kafka 的每个 **Broker** 启动后会向 Zookeeper 注册自身的信息（如 IP、端口、ID 等），并维持一个心跳，Zookeeper 会监控这些节点的存活状态。
+
+* 如果某个 Broker 宕机，Zookeeper 会立刻感知到，并通知 Controller。
+* 这使得 Kafka 能迅速地完成故障恢复，比如重新分配分区副本的 Leader。
+
+---
+
+### 2. **选举 Controller**
+
+Kafka 集群中有一个特殊角色叫 **Controller**，它负责：
+
+* 分区 Leader 的选举
+* 处理 Broker 上下线事件
+* 管理副本同步状态
+
+Kafka 使用 Zookeeper 的 **临时节点 + 竞选机制** 来选举 Controller，确保集群中始终只有一个活跃的 Controller。
+
+---
+
+### 3. **存储 Topic 元数据**
+
+Kafka 的 Topic 元数据（包括分区数量、副本分配、Leader 信息等）存储在 Zookeeper 中，包括：
+
+* 所有 Topic 的列表
+* 每个分区的 Leader 是哪个 Broker
+* 每个分区有哪些副本（ISR）
+
+这些元数据用于消费者和生产者客户端的查找路由，以及服务端内部的协调。
+
+---
+
+### 4. **维护 ISR 列表（In-Sync Replicas）**
+
+ISR 表示“与 Leader 同步的副本列表”。Zookeeper 会记录每个分区的 ISR 集合。
+
+* 当某个副本落后太多时，会被剔除出 ISR；
+* 当恢复同步后，会重新加入 ISR。
+
+这个信息用于确保数据一致性和高可用性。
+
+---
+
+### 5. **协调 Consumer Group（早期版本）**
+
+在 Kafka 的早期版本（Kafka 0.9 之前），**消费者组的协调** 也是依赖 Zookeeper 来完成的，比如：
+
+* 消费者注册和分区的分配信息
+* 每个消费者的 offset（偏移量）存储在 Zookeeper
+
+> 但在 Kafka 0.9+ 后，Kafka 引入了自己的 GroupCoordinator 模块，**offset 改为存储在 Kafka 自己的内置 `__consumer_offsets` 主题中**，不再依赖 Zookeeper。
+
+---
+
+## 二、Zookeeper 的数据结构示意图
+
+Zookeeper 是以树形结构存储 Kafka 元数据的，简要示例如下：
+
+```
+/kafka
+  ├── brokers
+  │    ├── ids          # 注册的所有 Broker 信息
+  │    └── topics       # 所有 Topic 元数据
+  ├── controller        # 当前 Controller 的元数据
+  ├── controller_epoch  # 控制器任期
+  ├── admin             # admin 相关操作（比如 delete topic）
+  └── isr_change_notification
+```
+
+---
+
+## 三、Zookeeper 的局限性
+
+随着 Kafka 集群规模扩大，Zookeeper 出现了以下问题：
+
+* **单点瓶颈**：Zookeeper 本身有写入吞吐的限制
+* **复杂部署**：需要额外维护一套 Zookeeper 集群
+* **协调延迟**：Controller 与 Zookeeper 间的通信引入额外延迟
+
+因此，Kafka 推出了新的 KRaft 模式（Kafka Raft）来彻底摆脱对 Zookeeper 的依赖。
+
+---
+
+## 四、总结对比
+
+| 功能            | 使用 Zookeeper 的 Kafka | KRaft 模式       |
+| ------------- | -------------------- | -------------- |
+| 元数据存储         | Zookeeper            | Kafka 自身的元数据日志 |
+| Controller 选举 | Zookeeper            | 内部 Raft 选举     |
+| Topic 信息      | 存于 ZK 节点             | 存于 Kafka 自身    |
+| ISR 管理        | 依赖 ZK                | Kafka 自主维护     |
+| 维护复杂度         | 高，需要运维 ZK            | 更简洁，ZK-Free    |
+
+---
+
+如你正在运维或开发基于 Kafka 的系统，并且是旧版本 Kafka（≤ 2.8），理解 Zookeeper 的作用非常重要；若使用新版本 Kafka（3.0+），可以考虑过渡到 Zookeeper-free 模式。
+
+---
+
+继续提问：https://chatgpt.com/share/686ddf14-1f08-8010-bdce-a4c904bfe71f
