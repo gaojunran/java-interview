@@ -1,0 +1,127 @@
+---
+title: 042 	什么是模板方法模式？一般用在什么场景？
+---
+
+**模板方法模式（Template Method Pattern）** 是一种行为型设计模式，它定义了一个算法的骨架（步骤的固定流程），将一些步骤延迟到子类中实现。通过这种方式，模板方法可以在不改变算法结构的前提下，允许子类重定义某些步骤的实现。
+
+---
+
+### 一、核心思想
+
+父类定义算法的结构（称为“模板方法”），具体的某些步骤由子类实现。
+
+---
+
+### 二、结构图（简要）
+
+```java
+abstract class AbstractClass {
+    // 模板方法：定义算法的骨架，不可重写
+    public final void templateMethod() {
+        step1();
+        step2();
+        step3(); // 钩子方法
+    }
+
+    protected abstract void step1(); // 抽象方法：交由子类实现
+    protected abstract void step2();
+
+    // 钩子方法：子类可选实现
+    protected void step3() {}
+}
+```
+
+---
+
+### 三、适用场景
+
+* 有多个子类有相似的操作流程，但部分步骤不同
+* 稳定算法中，某些步骤可能需要自定义扩展
+* 想要控制子类的行为顺序，防止子类破坏算法流程
+
+---
+
+### 四、Java 示例：制作饮料（咖啡与茶）
+
+```java
+// 抽象类：饮料制作模板
+abstract class Beverage {
+    // 模板方法（不能被子类覆盖）
+    public final void make() {
+        boilWater();
+        brew();
+        pourInCup();
+        addCondiments();
+    }
+
+    private void boilWater() {
+        System.out.println("Boiling water");
+    }
+
+    protected abstract void brew();           // 冲泡：子类实现
+    protected abstract void addCondiments();  // 加料：子类实现
+
+    private void pourInCup() {
+        System.out.println("Pouring into cup");
+    }
+}
+
+// 子类：咖啡
+class Coffee extends Beverage {
+    protected void brew() {
+        System.out.println("Brewing coffee grounds");
+    }
+
+    protected void addCondiments() {
+        System.out.println("Adding sugar and milk");
+    }
+}
+
+// 子类：茶
+class Tea extends Beverage {
+    protected void brew() {
+        System.out.println("Steeping the tea");
+    }
+
+    protected void addCondiments() {
+        System.out.println("Adding lemon");
+    }
+}
+```
+
+---
+
+### 五、使用方式
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        Beverage coffee = new Coffee();
+        coffee.make();  // 按照模板流程制作咖啡
+
+        Beverage tea = new Tea();
+        tea.make();     // 按照相同流程制作茶
+    }
+}
+```
+
+---
+
+### 六、优缺点
+
+#### ✅ 优点：
+
+* 复用了通用逻辑
+* 封装了不变部分，扩展了可变部分
+* 避免代码重复，提高代码复用性和可维护性
+
+#### ❌ 缺点：
+
+* 子类必须遵循模板流程，不够灵活
+* 如果模板过于复杂，维护成本高
+
+---
+
+如果你熟悉 Spring，可以类比：`AbstractApplicationContext.refresh()` 就是模板方法模式的典型应用。许多框架（Spring、JUnit、Servlet）都大量使用这种设计模式。
+
+继续提问：https://chatgpt.com/share/6873c52f-f438-8010-9ab3-c4abe7b16c96

@@ -1,0 +1,127 @@
+---
+title: 042 	什么是责任链模式？一般用在什么场景？
+---
+
+### 一、什么是责任链模式（Chain of Responsibility Pattern）
+
+**责任链模式**是一种行为型设计模式，它的核心思想是：
+
+> **将请求沿着一条“链”传递，直到某个处理器处理它为止。**
+
+每个处理器（Handler）都有机会处理请求，如果不能处理，就把请求传递给下一个处理器，直到链的尽头。
+
+---
+
+### 二、责任链模式的结构
+
+责任链模式通常包含以下角色：
+
+1. **抽象处理者（Handler）**：
+
+   * 定义一个处理请求的接口。
+   * 持有对下一个处理者的引用。
+
+2. **具体处理者（ConcreteHandler）**：
+
+   * 实现处理逻辑。
+   * 如果自己不能处理，则将请求传递给下一个处理者。
+
+3. **客户端（Client）**：
+
+   * 构建责任链。
+   * 发起请求。
+
+---
+
+### 三、适用场景
+
+责任链模式适用于：
+
+* 多个对象可以处理同一个请求，但具体由哪个对象处理在运行时动态决定；
+* 请求的发送者与接收者解耦，不关心最终由谁处理；
+* 想要动态地添加、删除处理逻辑；
+* 例如：权限验证、日志处理、拦截器链、审批流程等。
+
+---
+
+### 四、Java 示例：请假审批流程
+
+场景：员工请假，如果天数小于等于 1 天，组长审批；如果小于等于 3 天，经理审批；超过 3 天，总监审批。
+
+```java
+// 抽象处理者
+abstract class Approver {
+    protected Approver next;
+
+    public void setNext(Approver next) {
+        this.next = next;
+    }
+
+    public abstract void approve(int days);
+}
+
+// 具体处理者：组长
+class TeamLeader extends Approver {
+    public void approve(int days) {
+        if (days <= 1) {
+            System.out.println("组长审批通过");
+        } else if (next != null) {
+            next.approve(days);
+        }
+    }
+}
+
+// 具体处理者：经理
+class Manager extends Approver {
+    public void approve(int days) {
+        if (days <= 3) {
+            System.out.println("经理审批通过");
+        } else if (next != null) {
+            next.approve(days);
+        }
+    }
+}
+
+// 具体处理者：总监
+class Director extends Approver {
+    public void approve(int days) {
+        System.out.println("总监审批通过");
+    }
+}
+
+// 客户端
+public class LeaveRequest {
+    public static void main(String[] args) {
+        Approver leader = new TeamLeader();
+        Approver manager = new Manager();
+        Approver director = new Director();
+
+        // 构建责任链
+        leader.setNext(manager);
+        manager.setNext(director);
+
+        leader.approve(1); // 输出：组长审批通过
+        leader.approve(2); // 输出：经理审批通过
+        leader.approve(5); // 输出：总监审批通过
+    }
+}
+```
+
+---
+
+### 五、优缺点
+
+#### ✅ 优点：
+
+* 解耦请求发送者和处理者；
+* 动态组合处理链，灵活扩展；
+* 遵循开闭原则（OCP）；
+
+#### ❌ 缺点：
+
+* 可能导致链条过长、调试困难；
+* 请求可能不被任何处理者处理；
+
+---
+
+继续提问：https://chatgpt.com/share/6873c2ce-05c8-8010-9917-8396459d1eb7

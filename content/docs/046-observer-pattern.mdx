@@ -1,0 +1,145 @@
+---
+title: 046 什么是观察者模式？一般用在什么场景？
+---
+
+观察者模式（Observer Pattern）是一种**行为型设计模式**，它定义了一种**一对多的依赖关系**：当被观察对象（Subject）的状态发生变化时，所有依赖它的观察者（Observer）都会收到通知并自动更新。
+
+---
+
+## 一、核心思想
+
+> **对象之间解耦：** 观察者模式将“事件的发布者”与“事件的监听者”解耦，使得对象之间可以独立变化。
+
+---
+
+## 二、适用场景
+
+* 事件驱动系统，如 UI 事件、消息通知系统；
+* 数据模型更新，如表格更新、图表联动；
+* 发布-订阅系统，如消息队列、微博订阅、RSS；
+* 多级缓存失效通知；
+* 数据同步，如多人协作编辑。
+
+---
+
+## 三、模式结构
+
+* **Subject（被观察者）**：维护观察者列表，提供添加、删除、通知的方法。
+* **Observer（观察者）**：定义接收到通知后的更新行为。
+* **ConcreteSubject / ConcreteObserver**：实现具体逻辑。
+
+---
+
+## 四、Java 示例代码
+
+### 1. 自定义观察者模式实现：
+
+```java
+// 观察者接口
+public interface Observer {
+    void update(String message);
+}
+
+// 被观察者接口
+public interface Subject {
+    void attach(Observer o);
+    void detach(Observer o);
+    void notifyObservers(String message);
+}
+
+// 具体被观察者
+public class ConcreteSubject implements Subject {
+    private List<Observer> observers = new ArrayList<>();
+
+    @Override
+    public void attach(Observer o) {
+        observers.add(o);
+    }
+
+    @Override
+    public void detach(Observer o) {
+        observers.remove(o);
+    }
+
+    @Override
+    public void notifyObservers(String message) {
+        for (Observer o : observers) {
+            o.update(message);
+        }
+    }
+
+    // 业务逻辑示例
+    public void stateChanged() {
+        System.out.println("Subject state changed!");
+        notifyObservers("New state available");
+    }
+}
+
+// 具体观察者
+public class ConcreteObserver implements Observer {
+    private String name;
+
+    public ConcreteObserver(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public void update(String message) {
+        System.out.println(name + " received update: " + message);
+    }
+}
+
+// 测试类
+public class Main {
+    public static void main(String[] args) {
+        ConcreteSubject subject = new ConcreteSubject();
+
+        Observer observer1 = new ConcreteObserver("Observer A");
+        Observer observer2 = new ConcreteObserver("Observer B");
+
+        subject.attach(observer1);
+        subject.attach(observer2);
+
+        subject.stateChanged();  // 通知所有观察者
+    }
+}
+```
+
+### 2. Java 内置 `Observer` / `Observable`（已弃用）
+
+```java
+class MyObservable extends Observable {
+    public void changeState() {
+        setChanged();
+        notifyObservers("data changed");
+    }
+}
+
+class MyObserver implements Observer {
+    public void update(Observable o, Object arg) {
+        System.out.println("Received: " + arg);
+    }
+}
+```
+
+⚠️ 注意：`java.util.Observable` 和 `Observer` 已在 Java 9 开始被标为弃用，推荐使用自定义或基于事件总线（如 Guava、RxJava、Spring Event）的替代方案。
+
+---
+
+## 五、优缺点
+
+### ✅ 优点
+
+* 解耦：主题与观察者之间松耦合；
+* 支持广播机制；
+* 动态添加/移除观察者；
+
+### ❌ 缺点
+
+* 通知链复杂时难以调试；
+* 多个观察者依赖时，顺序和性能可能受影响；
+* 可能引起循环依赖或内存泄漏（未正确移除观察者）；
+
+---
+
+继续提问：https://chatgpt.com/share/6873c6af-bed4-8010-b1c0-10e30850dcba
