@@ -1,0 +1,155 @@
+---
+title: 030	说一下 RocketMQ 中关于事务消息的实现？
+---
+
+RocketMQ 中的事务消息实现，是一种为了解决**分布式事务一致性问题**的机制，其核心思想是实现**“最终一致性”**，而非强一致性。RocketMQ 采用了一种 **二阶段提交 + 回查机制** 的事务消息设计。
+
+下面我会详细分阶段讲解 RocketMQ 的事务消息原理、流程、状态管理和优缺点。
+
+---
+
+## 一、基本概念
+
+在 RocketMQ 中，事务消息允许你把消息发送与本地事务执行绑定起来，实现业务操作与消息发送的原子性保证。RocketMQ 的事务消息不是分布式事务协议（如 XA），而是一种轻量级的 **“半事务”+“补偿回查”机制**。
+
+---
+
+## 二、核心流程（事务消息的三阶段）
+
+RocketMQ 的事务消息整体分为三个阶段：
+
+### **1. 发送半消息（Prepare 阶段）**
+
+* Producer 向 MQ 发送一个“**半消息**”（也叫预提交消息、Prepare 消息）；
+* 这个消息对消费者是**不可见**的，不会被消费；
+* Broker 将这个消息写入磁盘，标记为“半消息”。
+
+> ⚠️ 半消息不代表业务提交成功，只是消息系统做好了准备。
+
+---
+
+### **2. 执行本地事务（Local Transaction）**
+
+* 发送成功后，Producer 会执行本地事务逻辑（如更新数据库）；
+* 本地事务执行后，Producer 向 Broker 发回一个二次确认（Commit or Rollback）：
+
+  * **Commit**：告诉 Broker 这个事务成功，Broker 会将半消息转为正常消息并投递；
+  * **Rollback**：告诉 Broker 本地事务失败，Broker 会删除该半消息；
+  * **Unknown**：如果 Producer 当时崩溃，Broker 无法获取明确状态，会进入“回查阶段”。
+
+---
+
+### **3. Broker 事务回查（Check 阶段）**
+
+* 如果 Broker 一定时间内没有收到 Producer 的 Commit 或 Rollback，认为状态不确定；
+* Broker 会主动调用 Producer 提供的一个**回查接口**（`checkLocalTransaction`）；
+* Producer 会根据本地事务状态（例如查数据库或内存）返回事务结果（Commit / Rollback）；
+* Broker 据此决定投递消息还是丢弃。
+
+---
+
+## 三、代码层面实现（API 结构）
+
+使用 RocketMQ 事务消息，Producer 一般需要实现一个 `TransactionListener` 接口：
+
+```java
+public interface TransactionListener {
+    LocalTransactionState executeLocalTransaction(Message msg, Object arg);
+    LocalTransactionState checkLocalTransaction(MessageExt msg);
+}
+```
+
+* `executeLocalTransaction`：执行本地事务；
+* `checkLocalTransaction`：事务回查时被 Broker 调用；
+
+事务状态返回值是枚举 `LocalTransactionState`：
+
+```java
+public enum LocalTransactionState {
+    COMMIT_MESSAGE,   // 提交事务
+    ROLLBACK_MESSAGE, // 回滚事务
+    UNKNOW            // 状态未知，Broker 回查
+}
+```
+
+---
+
+## 四、示意图
+
+```
++-----------+           +-----------+           +---------+
+| Producer  |           |  Broker   |           |Consumer |
++-----------+           +-----------+           +---------+
+     |                       |                        |
+     |--- Send Prepare Msg-->|                        |
+     |                       |                        |
+     |--Execute Local Tx-----|                        |
+     |                       |                        |
+     |--Commit/Rollback Msg->|                        |
+     |                       |--Deliver to Consumer-->|  (If Commit)
+     |                       |                        |
+```
+
+如果没有收到 Commit/Rollback，Broker 会：
+
+```
+     |<--CheckLocalTransaction--|
+     |--Return COMMIT/ROLLBACK->|
+```
+
+---
+
+## 五、存储机制简略说明
+
+* 半消息存储在一个特殊的 topic：`RMQ_SYS_TRANS_HALF_TOPIC`；
+* Commit 后转发到原始业务 topic；
+* Broker 会定期扫描半消息队列，超时未决的消息就发起事务回查。
+
+---
+
+## 六、RocketMQ 事务消息的优缺点
+
+### ✅ 优点
+
+* 实现了事务消息的一致性；
+* 不需要引入分布式事务协调器；
+* 对 MQ 系统和业务系统解耦；
+* 支持大多数业务场景（最终一致性足够）；
+
+### ❌ 缺点
+
+* 实现的是**最终一致性**，不能强一致；
+* 对 Producer 有较多开发要求（需实现回查逻辑）；
+* 事务回查可能加重业务系统负担（需查询本地状态）；
+* 消息可能延迟可见（直到 Commit）；
+* 回查存在窗口期，可能造成消息投递延迟；
+
+---
+
+## 七、使用限制
+
+RocketMQ 的事务消息有以下限制：
+
+* **不支持延时消息**；
+* **不支持批量发送消息**；
+* **事务消息大小限制为 4MB**；
+* 回查间隔、超时等需要配置合理，避免资源浪费或假死；
+
+---
+
+## 八、典型使用场景
+
+* 用户下单后发送订单创建事件（避免库存服务先消费）；
+* 资金系统中转账操作与消息通知绑定；
+* 电商平台中支付成功后异步触发发货服务等。
+
+---
+
+## 九、总结
+
+RocketMQ 事务消息通过 **“先发送半消息，再执行本地事务，最后提交或回滚消息”** 的方式，实现了一种高可用、轻量级的分布式事务解决方案。它适合大多数 **对一致性要求不那么强，但需要较高可用性** 的系统。
+
+---
+
+继续提问：https://chatgpt.com/share/68739624-df28-8010-ba9c-c956cedc011d
+

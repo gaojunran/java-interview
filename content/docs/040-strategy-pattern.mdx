@@ -1,0 +1,145 @@
+---
+title: 040 什么是策略模式？一般用在什么场景？
+---
+
+策略模式（Strategy Pattern）是一种**行为型设计模式**，它定义了一系列算法，把它们一个个封装起来，并且使它们可以相互替换。策略模式让算法独立于使用它的客户端而变化。
+
+---
+
+## 🧠 一句话理解
+
+将一组可变的行为抽象成策略接口，不同的策略实现可以在运行时动态替换，从而使得行为变化不影响使用它的对象。
+
+---
+
+## 🧱 模式结构（类图）
+
+```text
+         +-------------------+
+         |   Strategy (接口) |
+         +-------------------+
+                  ▲
+        +---------+---------+
+        |                   |
++---------------+   +---------------+
+| ConcreteStrat1|   | ConcreteStrat2|
++---------------+   +---------------+
+
+           +--------------------+
+           | Context（上下文） |
+           +--------------------+
+           | - strategy:Strategy|
+           +--------------------+
+           | + setStrategy()    |
+           | + execute()        |
+           +--------------------+
+```
+
+---
+
+## ✅ 组成部分
+
+* **Strategy（策略接口）**：定义所有支持的算法（策略）的公共接口。
+* **ConcreteStrategy（具体策略）**：实现了具体的算法。
+* **Context（上下文）**：持有一个策略的引用，客户端通过它设置策略并执行。
+
+---
+
+## 📌 使用场景
+
+策略模式常用于以下**行为频繁变化**且**可替代性强**的场景：
+
+1. **多个类只在行为上稍有不同**，你希望通过组合而非继承来避免代码重复。
+2. **需要在运行时选择算法或行为**（如排序策略、加密方式、优惠计算等）。
+3. **消除冗长的 if-else 或 switch 语句**。
+4. **希望把算法从使用它的类中分离出来**，以便独立扩展和测试。
+
+---
+
+## 🧾 Java 示例
+
+比如有一个出行方式选择系统：
+
+```java
+// 策略接口
+public interface TravelStrategy {
+    void travel();
+}
+
+// 具体策略：坐地铁
+public class SubwayStrategy implements TravelStrategy {
+    public void travel() {
+        System.out.println("坐地铁出行");
+    }
+}
+
+// 具体策略：骑自行车
+public class BikeStrategy implements TravelStrategy {
+    public void travel() {
+        System.out.println("骑自行车出行");
+    }
+}
+
+// 上下文：出行环境
+public class TravelContext {
+    private TravelStrategy strategy;
+
+    public void setStrategy(TravelStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public void go() {
+        strategy.travel();
+    }
+}
+
+// 使用示例
+public class Main {
+    public static void main(String[] args) {
+        TravelContext ctx = new TravelContext();
+
+        ctx.setStrategy(new SubwayStrategy());
+        ctx.go();  // 输出：坐地铁出行
+
+        ctx.setStrategy(new BikeStrategy());
+        ctx.go();  // 输出：骑自行车出行
+    }
+}
+```
+
+---
+
+## ⚖️ 优点和缺点
+
+### ✅ 优点
+
+* 避免大量 if-else 或 switch。
+* 算法独立封装，符合**开闭原则**。
+* 策略可以复用，便于扩展或替换。
+* 易于单元测试。
+
+### ❌ 缺点
+
+* 客户端需要了解策略类的区别，增加了使用成本。
+* 会增加类的数量。
+* 所有策略类都需要暴露给客户端，可能违反封装原则。
+
+---
+
+## 🧩 和其他模式的对比
+
+| 模式    | 关注点      | 对比点               |
+| ----- | -------- | ----------------- |
+| 策略模式  | 行为的封装和替换 | 强调行为可变            |
+| 状态模式  | 对象状态的变化  | 状态之间自动流转，策略是由外部控制 |
+| 装饰器模式 | 添加额外职责   | 关注行为增强，而非切换行为     |
+
+---
+
+## 🧠 总结
+
+策略模式的核心思想就是 **“分离变化”** —— 将可能变化的算法独立封装，使得代码更加灵活易扩展。它是一种对行为进行“委托”的设计思想，非常适合在业务逻辑中处理**条件分支、算法选择、可插拔行为**等场景。
+
+---
+
+继续提问：https://chatgpt.com/share/68736c89-1aac-8010-b9bc-e57ce6ba5f87

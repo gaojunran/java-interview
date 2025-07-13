@@ -1,0 +1,111 @@
+---
+title: 037 	MySQL 默认的事务隔离级别是什么？为什么选择这个级别？
+---
+
+MySQL 默认的事务隔离级别是 **可重复读（REPEATABLE READ）**，这是 InnoDB 存储引擎的默认隔离级别。
+
+---
+
+## 一、四种事务隔离级别回顾
+
+根据 SQL 标准，事务隔离级别从低到高有四种：
+
+| 隔离级别             | 脏读 | 不可重复读 | 幻读 |
+| ---------------- | -- | ----- | -- |
+| READ UNCOMMITTED | ✅  | ✅     | ✅  |
+| READ COMMITTED   | ❌  | ✅     | ✅  |
+| REPEATABLE READ  | ❌  | ❌     | ✅  |
+| SERIALIZABLE     | ❌  | ❌     | ❌  |
+
+说明：
+
+* ✅：可能发生
+* ❌：不会发生
+
+---
+
+## 二、MySQL 默认使用 REPEATABLE READ 的原因
+
+InnoDB 使用 **REPEATABLE READ + MVCC（多版本并发控制）**，既保证了较高的一致性，又兼顾了并发性能：
+
+### ✅ 优点
+
+1. **防止不可重复读**
+
+   * 事务内多次读取同一行数据，结果一致。
+2. **通过 MVCC 避免加锁，性能好**
+
+   * 读取操作无需加锁，使用“快照读”读取数据，提高并发性。
+3. **通过间隙锁防止幻读**
+
+   * 幻读是指范围查询后又插入符合条件的新行。MySQL 用“间隙锁”（gap lock）防止新记录插入，避免幻读。
+
+### 🔍 举例说明：
+
+```sql
+-- 假设表有一条记录 id = 1，值为 100
+
+-- 事务A：
+START TRANSACTION;
+SELECT * FROM account WHERE id = 1; -- 读取到 100
+
+-- 事务B：
+START TRANSACTION;
+UPDATE account SET balance = 200 WHERE id = 1;
+COMMIT;
+
+-- 事务A再次读取：
+SELECT * FROM account WHERE id = 1; -- 仍然读取到 100（因为是 REPEATABLE READ）
+```
+
+这说明事务 A 的快照是事务开始时的状态。
+
+---
+
+## 三、MVCC + REPEATABLE READ 的工作机制
+
+InnoDB 在 REPEATABLE READ 下使用 MVCC，读取时用**一致性读视图（Read View）**确保一致性：
+
+* 每条记录都有两个隐藏字段：
+
+  * `trx_id`：最近修改该行的事务 ID
+  * `roll_pointer`：指向 undo log（回滚日志）
+
+* 每个事务在第一次读时生成一个 Read View，只能看到在它开始前已经提交的事务所做的修改。
+
+因此：
+
+* 不可重复读：避免了，因为同一事务多次读的是相同的快照。
+* 幻读：InnoDB 会对范围查询加“**间隙锁**”，防止其他事务插入。
+
+---
+
+## 四、为什么不是 READ COMMITTED 或 SERIALIZABLE？
+
+### ❌ READ COMMITTED：
+
+* 虽然性能比 REPEATABLE READ 略好，但无法防止不可重复读。
+* Oracle 使用它，但 MySQL 使用更强的隔离。
+
+### ❌ SERIALIZABLE：
+
+* 虽然最安全，但需要对所有读加锁，性能代价高，几乎关闭并发。
+
+---
+
+## 总结
+
+> ✅ **默认隔离级别：REPEATABLE READ（可重复读）**
+
+### MySQL 选择它的理由：
+
+* 比 READ COMMITTED 更一致
+* 比 SERIALIZABLE 更高性能
+* 与 MVCC 搭配使用，既保证一致性又提升并发性
+* 可以防止脏读、不重复读，并借助间隙锁解决幻读
+
+这是 **一致性和性能之间的最佳平衡点**。
+
+---
+
+继续提问：https://chatgpt.com/share/68736575-07c4-8010-90d9-7319de599e36

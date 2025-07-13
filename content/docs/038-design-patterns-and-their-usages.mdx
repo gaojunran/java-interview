@@ -1,0 +1,331 @@
+---
+title: 038 谈谈你了解的最常见的几种设计模式，说说他们的应用场景
+---
+
+当然！设计模式是软件开发中常见的解决方案模板，能够帮助我们写出更优雅、可维护、可扩展的代码。以下是我熟悉的几种常见设计模式，以及它们的应用场景和 Java 例子。
+
+---
+
+## 1. 单例模式（Singleton Pattern）
+
+### 作用
+
+确保一个类只有一个实例，并提供一个全局访问点。
+
+### 应用场景
+
+* 配置管理器（Configuration Manager）
+* 线程池
+* 日志管理类
+* 数据库连接池
+
+### Java 示例
+
+```java
+public class Singleton {
+    // 使用 volatile 保证多线程下的可见性和禁止指令重排序
+    private static volatile Singleton instance;
+
+    private Singleton() {
+        // 私有构造函数，防止外部实例化
+    }
+
+    public static Singleton getInstance() {
+        if (instance == null) {
+            synchronized (Singleton.class) {
+                if (instance == null) {
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+
+---
+
+## 2. 工厂模式（Factory Pattern）
+
+### 作用
+
+定义一个创建对象的接口，让子类决定实例化哪一个类。工厂模式让类的实例化推迟到子类。
+
+### 应用场景
+
+* 日志框架根据配置创建不同的日志实现
+* 数据库连接根据不同数据库创建不同连接
+* 图形界面控件库，根据操作系统不同创建不同控件
+
+### Java 示例
+
+```java
+// 产品接口
+interface Shape {
+    void draw();
+}
+
+// 具体产品
+class Circle implements Shape {
+    public void draw() {
+        System.out.println("Draw Circle");
+    }
+}
+
+class Rectangle implements Shape {
+    public void draw() {
+        System.out.println("Draw Rectangle");
+    }
+}
+
+// 工厂类
+class ShapeFactory {
+    public Shape getShape(String shapeType) {
+        if (shapeType == null) return null;
+        if (shapeType.equalsIgnoreCase("CIRCLE")) return new Circle();
+        else if (shapeType.equalsIgnoreCase("RECTANGLE")) return new Rectangle();
+        return null;
+    }
+}
+
+// 使用
+public class Main {
+    public static void main(String[] args) {
+        ShapeFactory factory = new ShapeFactory();
+        Shape shape1 = factory.getShape("CIRCLE");
+        shape1.draw();
+
+        Shape shape2 = factory.getShape("RECTANGLE");
+        shape2.draw();
+    }
+}
+```
+
+---
+
+## 3. 观察者模式（Observer Pattern）
+
+### 作用
+
+定义对象间的一种一对多的依赖关系，当一个对象状态改变时，所有依赖者都会收到通知并自动更新。
+
+### 应用场景
+
+* 事件驱动编程（GUI事件监听）
+* 订阅-发布系统（消息推送）
+* MVC架构中视图对模型的监听
+
+### Java 示例
+
+```java
+import java.util.ArrayList;
+import java.util.List;
+
+// 观察者接口
+interface Observer {
+    void update(String message);
+}
+
+// 具体观察者
+class ConcreteObserver implements Observer {
+    private String name;
+
+    public ConcreteObserver(String name) {
+        this.name = name;
+    }
+
+    public void update(String message) {
+        System.out.println(name + " received: " + message);
+    }
+}
+
+// 被观察者接口
+interface Subject {
+    void registerObserver(Observer o);
+    void removeObserver(Observer o);
+    void notifyObservers();
+}
+
+// 具体被观察者
+class ConcreteSubject implements Subject {
+    private List<Observer> observers = new ArrayList<>();
+    private String message;
+
+    public void registerObserver(Observer o) {
+        observers.add(o);
+    }
+
+    public void removeObserver(Observer o) {
+        observers.remove(o);
+    }
+
+    public void notifyObservers() {
+        for (Observer o : observers) {
+            o.update(message);
+        }
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+        notifyObservers();
+    }
+}
+
+// 使用
+public class Main {
+    public static void main(String[] args) {
+        ConcreteSubject subject = new ConcreteSubject();
+
+        Observer observer1 = new ConcreteObserver("Observer1");
+        Observer observer2 = new ConcreteObserver("Observer2");
+
+        subject.registerObserver(observer1);
+        subject.registerObserver(observer2);
+
+        subject.setMessage("Hello Observers!");
+    }
+}
+```
+
+---
+
+## 4. 策略模式（Strategy Pattern）
+
+### 作用
+
+定义一系列算法，把它们一个个封装起来，并且使它们可相互替换，客户端可以根据需要选择不同算法。
+
+### 应用场景
+
+* 支付方式切换（支付宝、微信、信用卡）
+* 不同排序算法切换
+* 不同压缩算法切换
+
+### Java 示例
+
+```java
+// 策略接口
+interface PaymentStrategy {
+    void pay(int amount);
+}
+
+// 具体策略
+class CreditCardPayment implements PaymentStrategy {
+    public void pay(int amount) {
+        System.out.println("Paid " + amount + " using Credit Card");
+    }
+}
+
+class PayPalPayment implements PaymentStrategy {
+    public void pay(int amount) {
+        System.out.println("Paid " + amount + " using PayPal");
+    }
+}
+
+// 上下文
+class ShoppingCart {
+    private PaymentStrategy paymentStrategy;
+
+    public ShoppingCart(PaymentStrategy paymentStrategy) {
+        this.paymentStrategy = paymentStrategy;
+    }
+
+    public void checkout(int amount) {
+        paymentStrategy.pay(amount);
+    }
+}
+
+// 使用
+public class Main {
+    public static void main(String[] args) {
+        ShoppingCart cart = new ShoppingCart(new CreditCardPayment());
+        cart.checkout(100);
+
+        cart = new ShoppingCart(new PayPalPayment());
+        cart.checkout(200);
+    }
+}
+```
+
+---
+
+## 5. 装饰器模式（Decorator Pattern）
+
+### 作用
+
+动态地给对象添加职责或行为，增强对象功能，且不改变其结构。
+
+### 应用场景
+
+* Java I/O流的过滤器（BufferedReader装饰Reader）
+* 给对象动态添加功能，比如图形界面控件加上滚动条、边框等
+
+### Java 示例
+
+```java
+// 抽象组件
+interface Coffee {
+    double cost();
+    String description();
+}
+
+// 具体组件
+class SimpleCoffee implements Coffee {
+    public double cost() {
+        return 2.0;
+    }
+    public String description() {
+        return "Simple coffee";
+    }
+}
+
+// 抽象装饰类
+abstract class CoffeeDecorator implements Coffee {
+    protected Coffee decoratedCoffee;
+
+    public CoffeeDecorator(Coffee coffee) {
+        this.decoratedCoffee = coffee;
+    }
+
+    public double cost() {
+        return decoratedCoffee.cost();
+    }
+
+    public String description() {
+        return decoratedCoffee.description();
+    }
+}
+
+// 具体装饰类
+class MilkDecorator extends CoffeeDecorator {
+    public MilkDecorator(Coffee coffee) {
+        super(coffee);
+    }
+
+    public double cost() {
+        return super.cost() + 0.5;
+    }
+
+    public String description() {
+        return super.description() + ", milk";
+    }
+}
+
+// 使用
+public class Main {
+    public static void main(String[] args) {
+        Coffee coffee = new SimpleCoffee();
+        System.out.println(coffee.description() + " $" + coffee.cost());
+
+        Coffee milkCoffee = new MilkDecorator(coffee);
+        System.out.println(milkCoffee.description() + " $" + milkCoffee.cost());
+    }
+}
+```
+
+---
+
+注：完整的设计模式讲解参见：[栢码 - 设计模式](https://www.itbaima.cn/zh-CN/document/6386mh7anqt4tzyv)
+
+继续提问：https://chatgpt.com/share/6873684d-cf70-8010-bdbc-99744a7e209c
+

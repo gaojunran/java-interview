@@ -1,0 +1,105 @@
+---
+title: 029 	MySQL 事务的二阶段提交是什么？
+---
+
+MySQL 的二阶段提交（**Two-Phase Commit, 2PC**）主要应用于 **InnoDB 引擎**和 **inlog 日志（事务日志）**之*为了实现 **事务的原子性与持久性**。这是 MySQL 保证 **崩溃恢复一致性**的核心机制，尤其是在开启 **binlog** 的情况下。
+
+---
+
+## 🌟 为什么需要二阶段提交？
+
+MySQL 的事务要满足 ACID 中的原子性与持久性，而数据的真正持久化依赖两个模块：
+
+* **InnoDB 引擎层**：将数据写入表空间，记录 **redo log（重做日志）**
+* **Server 层（MySQL）**：记录 binlog（用于主从同步和恢复）
+
+那么问题来了：
+
+> 如果 InnoDB commit 成功了，但 binlog 记录失败了，或者写完 binlog 崩溃了，就会造成主备不一致或数据丢失。
+
+为了避免这个问题，MySQL 引入了 **二阶段提交机制** 来确保 redo log 和 binlog 的一致性。
+
+---
+
+## 📌 二阶段提交的参与者
+
+* **binlog**：逻辑日志，记录 SQL 语句（或行变更），用于主从复制
+* **redo log**：物理日志，记录页级别的数据变更，用于崩溃恢复
+
+---
+
+## 🚦 二阶段提交的执行流程
+
+以下是一个事务提交的完整过程（简化）：
+
+### 🟡 阶段一：准备阶段（Prepare Phase）
+
+1. 客户端发送事务的 SQL（比如：`UPDATE users SET score = score + 10 WHERE id = 1;`）
+2. InnoDB 执行更新操作，将变更写入内存（Buffer Pool）
+3. **InnoDB 写入 redo log 的 `prepare` 记录**，并 **刷盘**（fsync）
+
+   * 此时事务还没有提交，但重启时已可恢复
+4. **InnoDB 通知 Server 层：准备好了**
+
+### 🟢 阶段二：提交阶段（Commit Phase）
+
+5. Server 层写入 **binlog**
+6. Server 层调用 InnoDB 的 **commit 接口**
+
+   * InnoDB 写入 redo log 的 `commit` 标记，并刷盘
+7. 事务提交完成，返回客户端成功
+
+---
+
+## ✅ 特点与好处
+
+* 保证 **redo log** 与 **binlog** 的一致性
+* 崩溃后：
+
+  * 如果 redo log 有 prepare 但没 commit，MySQL 会回滚事务
+  * 如果 redo log 有 commit，但 binlog 缺失，则表明未真正 commit，不影响恢复
+
+---
+
+## ⚠️ 注意：两阶段提交 vs XA 两阶段
+
+MySQL 的内部二阶段提交和真正的 **XA（分布式事务）二阶段提交协议**是两回事：
+
+* ✅ MySQL 二阶段提交：redo log 和 binlog 的协调机制，**仅限于 MySQL 内部**
+* ❗ XA 两阶段提交：涉及多个数据库/资源的分布式事务协议，MySQL 也支持，但开销更大，使用场景较少
+
+---
+
+## 🧠 总结图示
+
+```
+           +-------------------+
+           |   Server 层       |
+           |  写 binlog (逻辑) |
+           +-------------------+
+                    ▲
+                    |
+       prepare      |
+                    ▼
++--------------------------+
+|      InnoDB 引擎层       |
+|  写 redo log (物理)      |
++--------------------------+
+
+         二阶段提交 = 保证 redo 与 binlog 的原子性
+```
+
+---
+
+## 💬 小结
+
+| 阶段      | 操作                              | 是否刷盘 |
+| ------- | ------------------------------- | ---- |
+| Prepare | InnoDB 写入 redo log（prepare）     | 是    |
+| Commit  | Server 写 binlog + InnoDB commit | 是    |
+
+二阶段提交是 MySQL 为了保证 **事务一致性、崩溃恢复可靠性** 的关键机制，尤其在 binlog 开启（如主从复制、点恢复等）时至关重要。
+
+---
+
+继续提问：https://chatgpt.com/share/68739451-f65c-8010-899f-b5736b82a6a7
