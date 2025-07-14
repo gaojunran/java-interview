@@ -1,0 +1,274 @@
+---
+title: 049 	说说 Spring 启动过程？
+---
+
+Spring 的启动过程可以从两个角度来看：
+
+---
+
+## 一、用户视角（基于 Spring Boot）
+
+当我们执行一个 Spring Boot 应用（带 `@SpringBootApplication`）时，通常的入口是：
+
+```java
+public static void main(String[] args) {
+    SpringApplication.run(MyApplication.class, args);
+}
+```
+
+整个流程大致如下：
+
+---
+
+### 🧭 1. 创建 SpringApplication 对象
+
+```java
+SpringApplication app = new SpringApplication(MyApplication.class);
+```
+
+* 分析主类上的注解（比如 `@SpringBootApplication`）
+* 推断当前应用是 Web 类型、Reactive 还是普通应用
+* 加载类路径中的 `META-INF/spring.factories`（如自动配置类）
+
+---
+
+### 🧰 2. 调用 `run()` 方法
+
+```java
+ConfigurableApplicationContext context = app.run(args);
+```
+
+核心逻辑如下：
+
+#### 2.1 准备阶段（`prepareEnvironment()`）
+
+* 创建并配置 `Environment`（比如加载 `application.properties/yml`）
+* 加载监听器并广播 ApplicationStartingEvent、EnvironmentPreparedEvent
+* 创建 `ApplicationContext`（默认是 `AnnotationConfigServletWebServerApplicationContext`）
+
+#### 2.2 加载阶段（`prepareContext()`）
+
+* 设置 `ApplicationContext` 的 Environment
+* 设置 BeanNameGenerator 等自定义器
+* 注册主配置类（带 `@SpringBootApplication` 的类）
+* 调用 `postProcessApplicationContext()` 方法（允许修改 Context）
+* 调用 `ApplicationContextInitializer`（可扩展）
+* 发布 ContextPreparedEvent 和 ContextLoadedEvent
+
+#### 2.3 刷新上下文（`context.refresh()`）
+
+这是 Spring 的核心，下面会在第二部分详细展开。
+
+---
+
+### ✅ 3. 应用启动完成（`afterRefresh()`）
+
+* 执行 `CommandLineRunner`、`ApplicationRunner` 等回调
+* 发布 ApplicationStartedEvent、ApplicationReadyEvent
+
+---
+
+## 二、框架内部视角（重点：`context.refresh()`）
+
+这是 Spring IoC 的启动核心方法。以 `AbstractApplicationContext#refresh()` 为核心流程：
+
+---
+
+### 🌱 1. 准备上下文环境
+
+```java
+prepareRefresh();
+```
+
+* 设置启动时间、活动标志等基础属性
+* 初始化 PropertySources、校验配置环境
+
+---
+
+### 🏗️ 2. 获取或创建 BeanFactory
+
+```java
+ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
+```
+
+* 创建并加载 BeanDefinition（从配置类、XML、组件扫描中读取）
+
+---
+
+### 🧩 3. 准备 BeanFactory（增强）
+
+```java
+prepareBeanFactory(beanFactory);
+```
+
+* 设置类加载器、添加 Spring 内部工具 Bean（比如 environment、resourceLoader）
+* 注册各种 BeanPostProcessor、Autowired 解析器等
+
+---
+
+### 🧼 4. 后处理 BeanFactory（可扩展）
+
+```java
+postProcessBeanFactory(beanFactory);
+```
+
+* 留给子类（如 `AnnotationConfigApplicationContext`）扩展，注册注解配置类等
+
+---
+
+### 📋 5. 调用 BeanFactoryPostProcessor
+
+```java
+invokeBeanFactoryPostProcessors(beanFactory);
+```
+
+* 比如 `ConfigurationClassPostProcessor` 解析 `@Configuration` 类，扫描 `@Component` 等
+
+---
+
+### 🔌 6. 注册 BeanPostProcessor
+
+```java
+registerBeanPostProcessors(beanFactory);
+```
+
+* 注册用于增强 Bean 的逻辑（比如 AOP、@Autowired、@Value 等）
+
+---
+
+### 🌐 7. 初始化国际化资源、监听器等
+
+```java
+initMessageSource();
+initApplicationEventMulticaster();
+```
+
+---
+
+### 📚 8. 初始化特殊 Bean
+
+```java
+onRefresh(); // 如 Web 环境会启动嵌入式 Tomcat
+```
+
+---
+
+### 🧱 9. 实例化剩下的单例 Bean
+
+```java
+finishBeanFactoryInitialization(beanFactory);
+```
+
+* 初始化所有非懒加载单例 Bean
+* 实现依赖注入、AOP 增强等功能
+
+---
+
+### ✅ 10. 发布完成事件
+
+```java
+finishRefresh();
+```
+
+* 发布 `ContextRefreshedEvent`
+* 清除缓存，启动生命周期管理器（比如 Servlet）
+
+---
+
+## 三、小结流程图（精简版）
+
+```
+main() -> SpringApplication.run()
+           ├── 创建 SpringApplication
+           ├── run()
+           │    ├── 创建 Environment
+           │    ├── 创建 ApplicationContext
+           │    ├── 注册主配置类
+           │    ├── context.refresh()
+           │    │    ├── 创建/加载 BeanDefinition
+           │    │    ├── 初始化 BeanFactory
+           │    │    ├── 调用后置处理器
+           │    │    ├── 实例化单例 Bean
+           │    │    └── 发布 ContextRefreshedEvent
+           │    ├── 执行 Runner
+           │    └── 发布 ApplicationReadyEvent
+```
+
+---
+
+当然可以，Spring 启动过程可以简化为 **5 个关键步骤**，每一步都承担特定作用，下面是简洁明了的版本：
+
+---
+
+## 🌟 Spring 启动简要流程（适用于 Spring Boot）
+
+### **步骤一：启动入口（main 方法）**
+
+```java
+SpringApplication.run(MyApplication.class, args);
+```
+
+**作用：**
+
+* 构建并启动 Spring 应用
+* 初始化 `SpringApplication` 对象
+
+---
+
+### **步骤二：环境准备**
+
+**关键方法：** `prepareEnvironment()`
+
+**作用：**
+
+* 加载配置文件（如 `application.yml`）
+* 创建并设置 `Environment`（包含端口、配置等）
+* 通知监听器：`ApplicationEnvironmentPreparedEvent`
+
+---
+
+### **步骤三：创建 ApplicationContext**
+
+**关键方法：** `createApplicationContext()`
+
+**作用：**
+
+* 创建 IOC 容器（比如 `AnnotationConfigServletWebServerApplicationContext`）
+* 判断是 Web 还是非 Web 环境
+* 注册主配置类（`@SpringBootApplication`）
+
+---
+
+### **步骤四：核心刷新过程（context.refresh()）**
+
+**作用：**
+这是整个 Spring 启动的核心，主要包括：
+
+1. 加载并注册 BeanDefinition（组件扫描、配置类）
+2. 初始化 BeanFactory 和 BeanPostProcessor
+3. 实例化所有非懒加载的单例 Bean
+4. 处理 AOP、@Autowired、@Value 等功能
+5. 发布 `ContextRefreshedEvent`
+
+---
+
+### **步骤五：应用启动完成**
+
+**作用：**
+
+* 执行 `CommandLineRunner` 和 `ApplicationRunner`
+* 发布 `ApplicationReadyEvent`
+* Spring 应用准备好对外提供服务
+
+---
+
+## ✅ 总结一句话：
+
+> Spring 启动过程本质是：
+> **构建环境 → 创建上下文 → 加载 Bean → 初始化 Bean → 通知启动完成**
+
+---
+
+继续提问：https://chatgpt.com/share/68746c12-b740-8010-99f8-5e26f1f1577f
+
+

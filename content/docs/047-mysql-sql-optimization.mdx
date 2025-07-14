@@ -1,0 +1,171 @@
+---
+title: 047 	MySQL 中如何进行 SQL 调优？
+---
+
+MySQL 的 SQL 调优（SQL Tuning）是提高数据库性能的重要手段。它的目标是让 SQL 语句更高效地执行，减少资源消耗、提高响应速度。SQL 调优通常包括语句本身的优化、索引的优化、执行计划分析等方面。
+
+---
+
+## 一、SQL 调优的基本步骤
+
+1. **确认性能问题**
+
+   * 是否是某条 SQL 慢？哪个接口慢？
+   * 使用慢查询日志（`slow_query_log`）或监控工具（如 APM、Performance Schema）定位。
+
+2. **获取执行计划（Execution Plan）**
+
+   * 使用 `EXPLAIN` 或 `EXPLAIN ANALYZE` 命令查看 SQL 的执行路径。
+   * 分析是否使用了索引、是否存在全表扫描、临时表、文件排序等。
+
+3. **查看表结构和索引**
+
+   * 使用 `SHOW CREATE TABLE` 或 `SHOW INDEX FROM table_name`。
+   * 判断字段类型是否合适、索引是否合理。
+
+4. **优化 SQL 语句或增加/调整索引**
+
+   * 通过重写 SQL 或加索引，减少扫描行数、避免临时表和排序。
+
+5. **验证优化效果**
+
+   * 对比优化前后的执行计划和执行时间。
+   * 使用 `SHOW PROFILE` 或 `performance_schema` 工具分析时间开销。
+
+---
+
+## 二、常见 SQL 优化技巧
+
+### 1. **避免 SELECT \***
+
+* 显式指定字段，避免无用数据读取。
+* 减少 IO、网络传输、内存占用。
+
+### 2. **WHERE 条件要使用索引列**
+
+```sql
+SELECT * FROM users WHERE email = 'abc@example.com'; -- 如果 email 有索引，才高效
+```
+
+### 3. **使用合适的索引**
+
+* **单列索引**适用于单字段筛选。
+* **联合索引**适用于多个字段查询，注意“最左前缀”原则。
+* 可使用 `EXPLAIN` 查看是否命中索引。
+
+### 4. **避免函数操作索引列**
+
+```sql
+-- 索引失效
+WHERE DATE(create_time) = '2023-07-01'
+-- 优化为：
+WHERE create_time >= '2023-07-01' AND create_time < '2023-07-02'
+```
+
+### 5. **避免隐式类型转换**
+
+```sql
+-- 字符串与数字比较会导致索引失效
+WHERE user_id = '123' -- 假如 user_id 是 int
+```
+
+### 6. **LIMIT + ORDER BY 优化**
+
+* 如果有大分页，可以用“延迟关联”方式优化。
+
+```sql
+SELECT id FROM posts ORDER BY create_time DESC LIMIT 10000, 20;
+-- 优化方案
+SELECT id FROM posts WHERE create_time < ? ORDER BY create_time DESC LIMIT 20;
+```
+
+### 7. **使用覆盖索引（covering index）**
+
+* 只访问索引即可完成查询，不需回表。
+
+```sql
+-- 假设 idx(name, age)
+SELECT name, age FROM users WHERE name = 'Tom';
+```
+
+### 8. **合理使用 JOIN**
+
+* 控制参与 JOIN 的表行数。
+* 使用小表驱动大表。
+* 对 JOIN 的连接字段建索引。
+* `EXPLAIN` 中注意 `type=ALL` 的表是否可以优化为 `ref` 或 `const`。
+
+### 9. **避免使用 SELECT 子查询代替 JOIN**
+
+```sql
+-- 慢
+SELECT * FROM orders WHERE user_id IN (SELECT id FROM users WHERE age > 30);
+
+-- 优化
+SELECT o.* FROM orders o JOIN users u ON o.user_id = u.id WHERE u.age > 30;
+```
+
+---
+
+## 三、使用 EXPLAIN 分析 SQL
+
+`EXPLAIN SELECT ...` 语句会返回 SQL 的执行计划。
+
+关键字段说明：
+
+| 字段             | 含义                                                     |
+| -------------- | ------------------------------------------------------ |
+| id             | 查询的序列号（越大越靠后执行）                                        |
+| select\_type   | 查询类型（SIMPLE、PRIMARY、SUBQUERY 等）                        |
+| table          | 当前正在访问的表名                                              |
+| type           | 访问类型（ALL、index、range、ref、eq\_ref、const）**越靠右越好**       |
+| possible\_keys | 可能用到的索引                                                |
+| key            | 实际用到的索引                                                |
+| rows           | 预估需要扫描的行数                                              |
+| Extra          | 额外信息，如 Using where、Using filesort、Using temporary 等警告项 |
+
+---
+
+## 四、慢 SQL 示例与优化
+
+### ❌ 慢 SQL 示例
+
+```sql
+SELECT * FROM users WHERE DATE(created_at) = '2024-01-01';
+```
+
+* 问题：函数 `DATE()` 导致索引失效。
+
+### ✅ 优化方式
+
+```sql
+SELECT * FROM users WHERE created_at >= '2024-01-01' AND created_at < '2024-01-02';
+```
+
+---
+
+## 五、其他辅助工具
+
+* `SHOW PROFILE`：查看 SQL 的 CPU、IO、parse、execution 各阶段耗时。
+* `performance_schema`：更细粒度的性能数据。
+* 图形工具：
+
+  * MySQL Workbench
+  * Navicat 的执行计划分析
+  * Percona Toolkit：分析慢查询日志
+  * pt-query-digest
+
+---
+
+## 六、建议的优化顺序
+
+1. 是否必要：避免冗余查询、过多字段、频繁调用
+2. WHERE 条件是否合适（用索引、范围合理、无函数/类型转换）
+3. 是否能使用覆盖索引
+4. 是否能减少 JOIN 或优化其顺序
+5. 排序与分页是否可优化
+6. 使用 `EXPLAIN` 或 `ANALYZE` 工具验证结果
+
+---
+
+继续提问：https://chatgpt.com/share/687467e1-953c-8010-bbe2-4523eef8fde0
