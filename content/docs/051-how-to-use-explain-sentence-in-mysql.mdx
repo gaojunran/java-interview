@@ -1,0 +1,273 @@
+---
+title: 051 	如何使用 MySQL 的 EXPLAIN 语句进行查询分析？
+---
+
+使用 `EXPLAIN` 是分析 **MySQL 查询执行计划** 的重要手段，可以帮助你理解查询是如何被执行的，从而优化性能。
+
+---
+
+## ✅ 一、基本用法
+
+在 `SELECT` 语句前加上 `EXPLAIN`：
+
+```sql
+EXPLAIN SELECT * FROM users WHERE id = 10;
+```
+
+或：
+
+```sql
+EXPLAIN SELECT u.name, o.amount
+FROM users u
+JOIN orders o ON u.id = o.user_id
+WHERE u.age > 30;
+```
+
+也可以使用 `EXPLAIN ANALYZE` 查看**实际执行的耗时**（MySQL 8.0+）：
+
+```sql
+EXPLAIN ANALYZE SELECT ...
+```
+
+---
+
+## ✅ 二、输出字段详解
+
+`EXPLAIN` 返回的是一张表格，常见字段如下（按重要性排序）：
+
+| 字段名                | 含义说明                                                |
+| ------------------ | --------------------------------------------------- |
+| **id**             | 查询中每个子查询或表的标识符，越大表示优先执行                             |
+| **select\_type**   | 查询的类型，如 SIMPLE、PRIMARY、SUBQUERY 等                   |
+| **table**          | 当前正在访问的表名或别名                                        |
+| **type**           | 连接类型，**最重要的优化指标**（见下）                               |
+| **possible\_keys** | 查询可能用到的索引                                           |
+| **key**            | 实际使用的索引                                             |
+| **key\_len**       | 使用索引的长度                                             |
+| **ref**            | 与索引列进行比较的字段或常量                                      |
+| **rows**           | MySQL 预计需要读取的行数                                     |
+| **filtered**       | 行过滤的百分比（MySQL 5.7+）                                 |
+| **Extra**          | 额外信息，如 Using index、Using filesort、Using temporary 等 |
+
+---
+
+## ✅ 三、`type`（连接类型）优劣顺序
+
+从好到差：
+
+```
+system > const > eq_ref > ref > range > index > ALL
+```
+
+
+
+### ✅ 1. `system`：表只有一行（极小表）
+
+* **含义**：整个表只有一行数据（极其罕见）。
+* **触发条件**：表中只有一行，且没有 `WHERE` 条件或条件恒为真。
+* **性能**：极快。
+* **示例**：
+
+```sql
+-- 假设 system_config 表只有 1 行
+EXPLAIN SELECT * FROM system_config;
+```
+
+---
+
+### ✅ 2. `const`：主键或唯一索引 + 常量比较
+
+* **含义**：**最多返回一行**，可在编译阶段确定结果。
+* **触发条件**：
+
+  * 使用了主键或唯一索引。
+  * 查询条件是常量（例如 `WHERE id = 1`）。
+* **性能**：非常快。
+
+**例子**：
+
+```sql
+-- id 是主键
+EXPLAIN SELECT * FROM users WHERE id = 1;
+```
+
+输出中 `type = const`，MySQL 直接按主键定位。
+
+---
+
+### ✅ 3. `eq_ref`：唯一索引连接（连接查询中最优）
+
+* **含义**：对于每一行主表数据，子表通过**唯一索引**或主键定位一行（相当于循环中查一次主键）。
+* **场景**：一般在 **多表连接中**出现。
+* **触发条件**：子表被等值连接，且连接字段是唯一索引或主键。
+
+**例子**：
+
+```sql
+EXPLAIN
+SELECT * FROM orders o
+JOIN users u ON o.user_id = u.id;
+-- u.id 是主键
+```
+
+> 每条 orders 记录都能在 users 中唯一对应一条记录。
+
+---
+
+### ✅ 4. `ref`：非唯一索引匹配
+
+* **含义**：使用普通索引查找，但可能返回多行。
+* **触发条件**：
+
+  * 查询或连接使用了**非唯一索引**或**前缀索引**。
+* **性能**：比 eq\_ref 差，但仍可接受。
+
+**例子**：
+
+```sql
+-- email 有普通索引，但不是唯一索引
+EXPLAIN SELECT * FROM users WHERE email = 'abc@example.com';
+```
+
+---
+
+### ✅ 5. `range`：范围索引扫描
+
+* **含义**：根据**范围条件**查找，MySQL 会扫描符合范围的部分索引。
+* **触发条件**：
+
+  * 使用索引的范围查询，如 `BETWEEN`、`>`、`<`、`IN (...)`
+* **性能**：比 ref 慢，但比全表好很多。
+
+**例子**：
+
+```sql
+EXPLAIN SELECT * FROM orders WHERE amount > 100 AND amount < 500;
+```
+
+---
+
+### ✅ 6. `index`：全索引扫描
+
+* **含义**：扫描整个**索引树**而不是表。
+* **触发条件**：
+
+  * 查询的数据可以完全从索引中取出（**覆盖索引**），但没有使用 `WHERE` 限制。
+* **性能**：比 `ALL` 好一点，因为不用回表。
+
+**例子**：
+
+```sql
+-- email 上有索引，且查询的字段正好被索引覆盖
+EXPLAIN SELECT email FROM users;
+```
+
+---
+
+### ✅ 7. `ALL`：全表扫描 ❌
+
+* **含义**：**最差的访问方式**，MySQL 扫描整个表来找到需要的行。
+* **触发条件**：
+
+  * 没有可用索引，或者优化器决定全表扫描更快。
+* **性能**：非常低，尤其是大表。
+
+**例子**：
+
+```sql
+-- 假设 name 没有索引
+EXPLAIN SELECT * FROM users WHERE name = 'Tom';
+```
+
+---
+
+### ✅ 总结对比
+
+| type 类型 | 是否使用索引    | 返回行数  | 性能等级   | 典型语句说明                  |
+| ------- | --------- | ----- | ------ | ----------------------- |
+| system  | -         | 1     | ⭐⭐⭐⭐⭐⭐ | 表只有一行                   |
+| const   | ✅ 主键/唯一索引 | 1     | ⭐⭐⭐⭐⭐  | `WHERE id=1`            |
+| eq\_ref | ✅ 唯一索引连接  | 1/次连接 | ⭐⭐⭐⭐   | `JOIN ON id`            |
+| ref     | ✅ 普通索引    | 多行    | ⭐⭐⭐    | `WHERE email=?`         |
+| range   | ✅ 范围索引    | 多行    | ⭐⭐     | `WHERE age > 18`        |
+| index   | ✅ 全索引遍历   | 多行    | ⭐      | `SELECT email FROM ...` |
+| ALL     | ❌ 否       | 全表    | ❌      | `SELECT * FROM ...`     |
+
+
+
+---
+
+## ✅ 四、Extra 字段常见值解读
+
+| Extra 内容          | 说明                 |
+| ----------------- | ------------------ |
+| Using where       | 使用了 `WHERE` 过滤     |
+| Using index       | 索引覆盖，无需回表，效率高      |
+| Using temporary   | 使用了临时表，常用于排序、分组    |
+| Using filesort    | 文件排序，效率较低，应避免      |
+| Using join buffer | 使用了连接缓存，表示未能用上索引连接 |
+| Impossible WHERE  | 条件不成立，结果为空         |
+
+---
+
+## ✅ 五、优化建议
+
+| 发现问题                         | 优化方向                |
+| ---------------------------- | ------------------- |
+| `type = ALL`                 | 加索引，避免全表扫描          |
+| `Extra` 包含 `Using filesort`  | 优化 `ORDER BY` 字段的索引 |
+| `Extra` 包含 `Using temporary` | 优化 `GROUP BY`，减少临时表 |
+| 未使用 `key`                    | 考虑调整查询或创建合适索引       |
+| `rows` 很大                    | 查询效率低，应尽量限制数据范围     |
+
+---
+
+## ✅ 六、举个例子
+
+```sql
+EXPLAIN SELECT * FROM users WHERE email = 'abc@example.com';
+```
+
+结果示意：
+
+| id | select\_type | table | type | possible\_keys | key        | key\_len | ref   | rows | Extra       |
+| -- | ------------ | ----- | ---- | -------------- | ---------- | -------- | ----- | ---- | ----------- |
+| 1  | SIMPLE       | users | ref  | idx\_email     | idx\_email | 102      | const | 1    | Using index |
+
+说明：
+
+* `idx_email` 被成功使用，属于 `ref` 类型，效率不错。
+* `Using index` 表示是覆盖索引，无需回表。
+
+---
+
+## ✅ 七、扩展：`EXPLAIN FORMAT=JSON`
+
+比传统 EXPLAIN 更详细：
+
+```sql
+EXPLAIN FORMAT=JSON SELECT ...;
+```
+
+会返回 JSON 结构，包含：
+
+* cost 信息
+* 是否并行执行
+* 实际索引评估
+* 物理执行顺序（更精确）
+
+---
+
+## ✅ 八、使用场景总结
+
+| 目的         | 做法                                 |
+| ---------- | ---------------------------------- |
+| 检查是否使用索引   | 看 `key` 字段是否为空                     |
+| 检查是否全表扫描   | `type` 是否为 `ALL`                   |
+| 检查排序/临时表   | `Extra` 中是否包含 filesort / temporary |
+| 检查数据访问量    | `rows` 字段大小                        |
+| 分析 JOIN 顺序 | 查看 `id` 和 `table` 的执行顺序            |
+
+---
+
+继续提问：https://chatgpt.com/share/68765a90-5708-8010-b9c5-e23ccb001634

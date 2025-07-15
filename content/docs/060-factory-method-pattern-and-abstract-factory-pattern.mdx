@@ -1,0 +1,143 @@
+---
+title: 060 	工厂模式和抽象工厂模式有什么区别？
+---
+
+工厂模式（Factory Method Pattern）和抽象工厂模式（Abstract Factory Pattern）都是创建型设计模式，它们的目标都是**解耦对象的创建过程**，让系统依赖于抽象而不是具体类。但它们在**应用场景、结构和复杂度**方面有明显区别。
+
+---
+
+## 一、工厂模式（Factory Method Pattern）
+
+### ✅ 核心思想：
+
+将对象的创建延迟到子类中，通过定义一个工厂接口来创建对象，由子类决定具体实例化哪一个产品类。
+
+### ✅ 结构图：
+
+```
+         Product（抽象产品）
+             ▲
+     ┌───────┴────────┐
+ ConcreteProductA  ConcreteProductB（具体产品）
+
+         Creator（抽象工厂）
+             ▲
+     ┌───────┴────────┐
+ConcreteFactoryA  ConcreteFactoryB（具体工厂）
+```
+
+### ✅ 角色说明：
+
+* `Product`: 抽象产品
+* `ConcreteProductA/B`: 具体产品
+* `Creator`: 抽象工厂类，定义一个工厂方法
+* `ConcreteFactoryA/B`: 具体工厂类，实现工厂方法，实例化具体产品
+
+### ✅ 示例（Java）：
+
+```java
+interface Product {
+    void use();
+}
+
+class ConcreteProductA implements Product {
+    public void use() {
+        System.out.println("使用产品A");
+    }
+}
+
+abstract class Creator {
+    abstract Product createProduct();
+}
+
+class ConcreteFactoryA extends Creator {
+    public Product createProduct() {
+        return new ConcreteProductA();
+    }
+}
+```
+
+---
+
+## 二、抽象工厂模式（Abstract Factory Pattern）
+
+### ✅ 核心思想：
+
+提供一个接口，创建一系列相关或相互依赖的对象，而无需指定它们的具体类。**解决产品族的创建问题。**
+
+### ✅ 结构图：
+
+```
+               AbstractFactory（抽象工厂）
+               ┌──────────────┬──────────────┐
+       createProductA()     createProductB()
+               ▼                          ▼
+ConcreteFactory1             ConcreteFactory2
+     ┌──────────────┐          ┌──────────────┐
+ ProductA1     ProductB1    ProductA2     ProductB2
+```
+
+### ✅ 角色说明：
+
+* `AbstractFactory`: 抽象工厂，定义创建一组产品的方法（如`createProductA()`和`createProductB()`）
+* `ConcreteFactory1/2`: 具体工厂，实现这些创建方法
+* `ProductA`、`ProductB`: 多个产品等级结构
+* `ProductA1`、`ProductB1`、`ProductA2`、`ProductB2`: 具体产品（组成一个产品族）
+
+### ✅ 示例（Java）：
+
+```java
+interface Button {
+    void paint();
+}
+
+interface TextField {
+    void draw();
+}
+
+interface GUIFactory {
+    Button createButton();
+    TextField createTextField();
+}
+
+// Windows 系列产品
+class WindowsButton implements Button {
+    public void paint() { System.out.println("Windows按钮"); }
+}
+class WindowsTextField implements TextField {
+    public void draw() { System.out.println("Windows文本框"); }
+}
+class WindowsFactory implements GUIFactory {
+    public Button createButton() { return new WindowsButton(); }
+    public TextField createTextField() { return new WindowsTextField(); }
+}
+```
+
+---
+
+## 三、核心区别总结
+
+| 比较维度     | 工厂方法模式        | 抽象工厂模式               |
+| -------- | ------------- | -------------------- |
+| 创建对象的数量  | 一个产品（单一产品）    | 一组产品（产品族）            |
+| 产品之间是否关联 | 不相关           | 产品族之间有逻辑关联           |
+| 工厂职责     | 创建某一类产品       | 创建多个产品等级结构中的产品       |
+| 新增产品族    | 修改工厂接口（影响范围大） | 增加一个新的工厂类即可（符合开闭原则）  |
+| 应用场景     | 只需创建一种产品类型时   | 需要创建多个相关产品（如 UI、数据库） |
+| 复杂度      | 较低            | 较高，但更灵活              |
+
+---
+
+## 四、举个通俗例子 🌍
+
+### 工厂方法模式：
+
+* 鞋子工厂可以生产「运动鞋」或「皮鞋」，你选择哪个子类工厂，就生产哪个鞋子。
+
+### 抽象工厂模式：
+
+* 阿迪达斯提供一整套产品（运动鞋 + 运动服 + 运动帽），耐克也提供一整套。你选择的是一个“品牌（产品族）”，它会产出成套的产品。
+
+---
+
+继续提问：https://chatgpt.com/share/68766eff-81a8-8010-887d-b832ddddbb23

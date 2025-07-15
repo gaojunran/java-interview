@@ -1,0 +1,120 @@
+---
+title: 054 	请描述简单工厂模式的工作原理。
+---
+
+简单工厂模式（Simple Factory Pattern）是一种**创建型设计模式**，它通过一个工厂类来根据不同的输入，**创建并返回不同类型的对象实例**，而**客户端不需要知道具体的创建过程**。
+
+---
+
+## 🧠 一句话理解：
+
+> 简单工厂把对象的创建交给一个工厂类，根据提供的参数决定创建哪种产品。
+
+---
+
+## 🏗️ 工作原理（流程）：
+
+1. **定义一个抽象产品接口（或父类）**：用于描述所有产品的公共行为。
+2. **创建多个具体产品类**：实现这个接口，表示不同类型的产品。
+3. **创建一个工厂类**：
+
+   * 包含一个静态方法（或普通方法）
+   * 接收一些参数（通常是字符串或枚举）
+   * 根据参数判断实例化哪个具体产品类，并返回。
+
+---
+
+## 🖼️ 类图示意：
+
+```
+          ┌─────────────┐
+          │   Product   │<────────────┐
+          └─────────────┘             │
+               ▲                      │
+        ┌──────┴───────┐        ┌─────┴─────┐
+        │ ProductA     │        │ ProductB  │
+        └──────────────┘        └───────────┘
+               ▲                      ▲
+               │                      │
+          ┌────┴────┐     ┌───────────┴──────────┐
+          │       SimpleFactory                  │
+          └──────────────────────────────────────┘
+                       │
+                       ▼
+                创建 ProductA 或 ProductB
+```
+
+---
+
+## 👨‍💻 Java 示例：
+
+```java
+// 抽象产品
+interface Product {
+    void use();
+}
+
+// 具体产品A
+class ProductA implements Product {
+    public void use() {
+        System.out.println("使用产品A");
+    }
+}
+
+// 具体产品B
+class ProductB implements Product {
+    public void use() {
+        System.out.println("使用产品B");
+    }
+}
+
+// 工厂类
+class SimpleFactory {
+    public static Product createProduct(String type) {
+        if ("A".equals(type)) {
+            return new ProductA();
+        } else if ("B".equals(type)) {
+            return new ProductB();
+        } else {
+            throw new IllegalArgumentException("未知产品类型");
+        }
+    }
+}
+
+// 客户端使用
+public class Main {
+    public static void main(String[] args) {
+        Product product = SimpleFactory.createProduct("A");
+        product.use();
+    }
+}
+```
+
+---
+
+## ✅ 优点：
+
+* **封装创建逻辑**，客户端只关心使用，不关心如何创建。
+* **减少重复代码**：集中管理对象创建。
+* **代码清晰**：职责单一，创建与使用分离。
+
+---
+
+## ❌ 缺点：
+
+* **不符合开闭原则**（添加新产品需修改工厂代码）。
+* 如果产品太多，**工厂方法代码会变得臃肿**。
+* 不能很好地应对产品种类频繁变化的场景。
+
+---
+
+## 📌 总结：
+
+简单工厂模式适用于：
+
+* 产品种类不多，变化不频繁。
+* 客户端不关心对象创建过程。
+
+当需求复杂时，可以升级为**工厂方法模式**或**抽象工厂模式**。是否需要我继续解释这两个更灵活的工厂模式？
+
+继续提问：https://chatgpt.com/share/68766849-977c-8010-9c1d-364071092371

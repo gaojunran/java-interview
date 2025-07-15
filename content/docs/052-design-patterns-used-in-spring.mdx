@@ -1,0 +1,198 @@
+---
+title: 052 你了解的 Spring 都用到哪些设计模式？
+---
+
+Spring 框架本身是一个优秀的设计模式实践集合体，它大量运用了经典的 **GoF（Gang of Four）设计模式** 来实现解耦、扩展性、可测试性等目标。下面是 Spring 中广泛使用的设计模式及其应用场景，按类别详细说明：
+
+---
+
+## 一、创建型设计模式
+
+### 1. **单例模式（Singleton）**
+
+* **应用：**
+
+  * Spring 默认的 Bean 就是单例模式（在容器中只存在一个实例）。
+* **目的：**
+
+  * 减少对象创建开销，复用实例，统一管理。
+* **示例：**
+
+  ```java
+  @Component
+  public class MyService {} // 默认是单例的
+  ```
+
+### 2. **工厂模式（Factory Method / Simple Factory）**
+
+* **应用：**
+
+  * `BeanFactory` 和 `ApplicationContext` 就是典型的工厂模式实现。
+* **目的：**
+
+  * 隐藏对象创建过程，降低耦合。
+* **示例：**
+
+  * `XmlBeanFactory`、`AnnotationConfigApplicationContext`
+
+### 3. **抽象工厂模式（Abstract Factory）**
+
+* **应用：**
+
+  * BeanFactory 作为上层抽象，支持不同类型的 Bean 创建策略（如 XML、注解等）。
+* **目的：**
+
+  * 创建一系列相关或依赖对象的集合。
+* **扩展：**
+
+  * `BeanDefinitionRegistry` + `BeanDefinitionReader`
+
+### 4. **建造者模式（Builder）**
+
+* **应用：**
+
+  * 用于构建复杂 Bean，例如 `BeanDefinitionBuilder`。
+* **目的：**
+
+  * 分步骤构建复杂对象。
+* **示例：**
+
+  ```java
+  BeanDefinitionBuilder builder = BeanDefinitionBuilder.rootBeanDefinition(MyBean.class);
+  builder.addPropertyValue("name", "abc");
+  ```
+
+---
+
+## 二、结构型设计模式
+
+### 5. **代理模式（Proxy）**
+
+* **应用：**
+
+  * AOP 的核心机制就是通过代理实现（JDK 动态代理或 CGLIB）。
+* **目的：**
+
+  * 在不改变目标类代码的前提下增强功能（如事务、日志、安全）。
+* **示例：**
+
+  ```java
+  @Transactional
+  public void doSomething() {}
+  ```
+
+### 6. **装饰器模式（Decorator）**
+
+* **应用：**
+
+  * `BeanPostProcessor`、`HandlerInterceptor`等功能增强器。
+* **目的：**
+
+  * 动态为对象添加行为。
+* **示例：**
+
+  * 自定义 `BeanPostProcessor` 对 Bean 进行包装。
+
+### 7. **适配器模式（Adapter）**
+
+* **应用：**
+
+  * Spring MVC 中的 `HandlerAdapter`、`WebBindingInitializer`。
+* **目的：**
+
+  * 将不同接口统一成统一标准使用。
+* **示例：**
+
+  * 使得不同类型的 Controller 都能处理请求。
+
+---
+
+## 三、行为型设计模式
+
+### 8. **观察者模式（Observer）**
+
+* **应用：**
+
+  * Spring 的事件发布机制：`ApplicationEvent` / `ApplicationListener`
+* **目的：**
+
+  * 一处事件触发，多方响应，解耦。
+* **示例：**
+
+  ```java
+  @EventListener
+  public void handle(UserCreatedEvent event) {}
+  ```
+
+### 9. **模板方法模式（Template Method）**
+
+* **应用：**
+
+  * `JdbcTemplate`、`RestTemplate`、`AbstractApplicationContext#refresh`
+* **目的：**
+
+  * 固定骨架，部分逻辑由子类实现。
+* **示例：**
+
+  ```java
+  jdbcTemplate.query("SELECT * FROM user", rs -> {
+      // 自定义逻辑
+  });
+  ```
+
+### 10. **策略模式（Strategy）**
+
+* **应用：**
+
+  * 多种 Bean 实现同一接口，根据场景动态选择使用。
+  * `HandlerMapping`、`ViewResolver`。
+* **目的：**
+
+  * 允许在运行时动态选择行为算法。
+* **示例：**
+
+  ```java
+  @Component("wechatPayment")
+  public class WechatPayment implements PaymentStrategy {}
+  ```
+
+### 11. **责任链模式（Chain of Responsibility）**
+
+* **应用：**
+
+  * Spring Security Filter Chain，Servlet Filter，Spring MVC 拦截器。
+* **目的：**
+
+  * 将请求在多个处理器中传递，直到处理结束。
+* **示例：**
+
+  * 多个 `HandlerInterceptor` 顺序执行。
+
+### 12. **命令模式（Command）**
+
+* **应用：**
+
+  * Spring Batch 中对任务封装为命令对象。
+* **目的：**
+
+  * 抽象行为为命令对象，支持日志、撤销、排队等。
+* **扩展：**
+
+  * `Runnable`, `Callable` 也是类似的用途。
+
+---
+
+## 四、Spring 设计哲学中的模式体现（补充）
+
+| 场景          | 使用的设计模式                   |
+| ----------- | ------------------------- |
+| IOC/DI      | 依赖注入（非 GoF 模式，但是一种重要架构思想） |
+| AOP         | 代理 + 装饰器 + 策略             |
+| 事件发布        | 观察者                       |
+| Bean 生命周期扩展 | 模板方法 + 策略                 |
+| 自动装配        | 策略 + 工厂                   |
+| MVC 请求处理    | 策略 + 适配器 + 责任链            |
+
+---
+
+继续提问：https://chatgpt.com/share/68765a85-1ed8-8010-a88a-6f25c7974f81

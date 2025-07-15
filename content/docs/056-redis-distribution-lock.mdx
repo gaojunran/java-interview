@@ -1,0 +1,138 @@
+---
+title: 056 	Redis 中如何实现分布式锁？
+---
+
+在 Redis 中实现分布式锁是一种常见的方案，用于协调多个节点（例如多个服务实例）之间对共享资源的互斥访问。下面详细讲讲其实现方式、关键要点及存在的问题和优化方式。
+
+---
+
+## 一、基本思路：使用 Redis 的 `SET` 命令加锁
+
+```bash
+SET lock_key unique_value NX EX 10
+```
+
+### 参数说明：
+
+* `lock_key`：锁的唯一标识。
+* `unique_value`：锁的持有者标识（通常是 UUID，用于解锁时验证）。
+* `NX`：只在键不存在时设置，保证互斥。
+* `EX 10`：设置锁的过期时间（秒），防止死锁。
+
+> ✅ **如果返回 OK，说明加锁成功。否则失败（表示锁已被其他客户端持有）。**
+
+---
+
+## 二、解锁的正确方式
+
+> 解锁时必须验证是自己加的锁，避免误删别人加的锁。
+
+### 使用 Lua 脚本实现原子性：
+
+```lua
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+```
+
+调用方式（以 Java Jedis 为例）：
+
+```java
+String script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+jedis.eval(script, Collections.singletonList(lockKey), Collections.singletonList(uniqueValue));
+```
+
+---
+
+## 三、常见问题和解决方案
+
+### 1. ❌ 时钟漂移、超时导致锁提前失效
+
+**问题**：如果任务执行时间超过锁的过期时间，锁会被其他客户端获取，导致并发问题。
+
+**解决方案**：
+
+* **合理设置过期时间**，留有足够缓冲。
+* **锁续命**：定时刷新 `EX`，适用于任务执行时间不可控的情况（比如使用 Watchdog 机制）。
+
+---
+
+### 2. ❌ 多节点 Redis 下的数据不一致问题
+
+**问题**：单 Redis 实例存在单点故障；主从延迟或切换可能导致锁失效或多客户端同时加锁成功。
+
+**解决方案**：使用 **Redlock 算法**（官方推荐）：
+
+---
+
+## 四、Redlock 分布式锁算法
+
+Redlock 是 Redis 官方提出的一种安全的分布式锁算法。
+
+### 实现原理：
+
+1. 在 **N 个独立 Redis 实例**（通常为 5 个）上并行尝试加锁。
+2. 如果在多数节点（例如 ≥ 3/5）成功加锁，且总耗时小于锁的有效时间，则认为加锁成功。
+3. 否则失败，释放已加的锁。
+
+### 特点：
+
+* 容忍部分 Redis 实例宕机。
+* 使用当前时间戳判断锁的有效性，保证安全性。
+* 各节点锁需要设置相同的 `key/value` 和过期时间。
+
+### 示例伪代码流程：
+
+```python
+start_time = now()
+success_count = 0
+
+for redis in redis_nodes:
+    if redis.set(lock_key, uuid, NX, PX, ttl):
+        success_count += 1
+
+elapsed = now() - start_time
+if success_count >= N/2 + 1 and elapsed < ttl:
+    return True  # 获得锁成功
+else:
+    for redis in redis_nodes:
+        redis.del(lock_key)  # 清理残留锁
+    return False
+```
+
+> 注意：要使用高精度时钟（比如 `System.nanoTime()`）避免时间误差。
+
+---
+
+## 五、常用的 Redis 分布式锁实现库
+
+### Java：
+
+* **Redisson**（推荐）：
+
+  * 提供可重入锁、公平锁、读写锁等。
+  * 支持 Watchdog 自动续期。
+* **Jedis + 手动实现**：适合轻量使用。
+
+### Python：
+
+* `redis-py` + 自定义脚本。
+* `redis-lock` 库（支持自动续约）。
+
+---
+
+## 六、小结
+
+| 项目   | 实现关键                             |
+| ---- | -------------------------------- |
+| 加锁   | `SET NX EX` 保证原子性                |
+| 解锁   | Lua 脚本验证持有者再删除                   |
+| 超时控制 | 设置过期时间，防止死锁                      |
+| 安全性  | 可用 UUID 标识持有者；使用 Redlock 算法提升一致性 |
+| 工具   | Redisson / Lua 脚本等封装             |
+
+---
+
+继续提问：https://chatgpt.com/share/68766b95-4664-8010-9874-d9f03518305d
