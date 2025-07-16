@@ -1,0 +1,122 @@
+---
+title: 061 	SpringBoot 是如何实现自动配置的？
+---
+
+Spring Boot 实现自动配置的核心机制是基于 **Spring 的条件化装配机制**（`@Conditional` 系列注解）以及 **`spring.factories` 配置文件**（Spring Boot 2.x 之前）或 **`META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`**（Spring Boot 3.x 起）。
+
+下面是详细原理讲解：
+
+---
+
+## 一、自动配置的目标
+
+Spring Boot 的自动配置（AutoConfiguration）目标是：
+
+> “约定优于配置”，根据项目中依赖的类库和配置信息，**自动配置常用的 Bean**，尽量减少 XML 或 Java 配置的代码。
+
+---
+
+## 二、自动配置的核心注解：`@SpringBootApplication`
+
+```java
+@SpringBootApplication
+```
+
+这个注解是一个复合注解，包含：
+
+```java
+@Configuration
+@EnableAutoConfiguration  // 自动配置的关键
+@ComponentScan
+```
+
+其中的 `@EnableAutoConfiguration` 是实现自动配置的关键，它会触发自动配置的加载。
+
+---
+
+## 三、`@EnableAutoConfiguration` 的作用
+
+它的核心逻辑是使用 `SpringFactoriesLoader` 加载：
+
+```java
+META-INF/spring.factories（Spring Boot 2.x）
+META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports（Spring Boot 3.x）
+```
+
+这些文件中列出了所有自动配置类，如：
+
+```properties
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration,\
+org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,\
+...
+```
+
+这些类都会在 Spring 容器启动时被注册。
+
+---
+
+## 四、自动配置类的实现逻辑
+
+这些自动配置类本质上是普通的 `@Configuration` 配置类，只不过它们通常会加上大量的 `@Conditional` 系列注解，如：
+
+* `@ConditionalOnClass`：某个类在类路径下才生效（比如存在 `DataSource`）
+* `@ConditionalOnMissingBean`：容器中没有某个 Bean 才生效
+* `@ConditionalOnProperty`：某个配置项为特定值时才生效
+* `@ConditionalOnWebApplication`：当前是 Web 应用时才生效
+
+**示例：`DataSourceAutoConfiguration`**
+
+```java
+@Configuration
+@ConditionalOnClass(DataSource.class)
+@ConditionalOnMissingBean(DataSource.class)
+@EnableConfigurationProperties(DataSourceProperties.class)
+public class DataSourceAutoConfiguration {
+    @Bean
+    public DataSource dataSource(DataSourceProperties properties) {
+        // 根据 application.properties 中的配置构建数据源
+    }
+}
+```
+
+如果你的类路径下有 JDBC 的依赖，且你没有手动定义 `DataSource`，它就会自动帮你创建。
+
+---
+
+## 五、自动配置加载过程（流程总结）
+
+1. **`@SpringBootApplication`** 启动入口
+2. **`@EnableAutoConfiguration`** 导致 Spring Boot 去加载所有自动配置类
+3. **SpringFactoriesLoader** 从 `META-INF/spring.factories` 或 `.imports` 文件中读取自动配置类名
+4. Spring 根据类路径中依赖、配置文件内容（application.properties/yml）、
+   Bean 定义情况等条件，**按需加载配置类中的 Bean 定义**
+5. 用户可以通过配置覆盖默认值，或通过 `@Bean`/`@Component`/`@Configuration` 自定义替换默认配置
+
+---
+
+## 六、用户如何扩展自动配置？
+
+| 步骤 | 描述                                                               |
+| -- | ---------------------------------------------------------------- |
+| 1  | 创建一个带 `@Configuration` 的自动配置类                                    |
+| 2  | 用 `@ConditionalOn*` 控制启用条件                                       |
+| 3  | 在清单文件中声明这个配置类（Spring Boot 2 用 `spring.factories`，3 用 `.imports`） |
+| 4  | 可选：打包成 Starter 提供复用                                              |
+
+
+---
+
+## 七、和 Spring 的区别？
+
+Spring 的配置靠你手动写 `@Configuration` 或 XML，Spring Boot 提供了默认配置类，只在条件满足时加载，这就是它“自动”的关键。
+
+---
+
+## 总结一句话：
+
+> **Spring Boot 通过 `@EnableAutoConfiguration` + 条件注解（如 `@ConditionalOnClass`）+ 自动配置类清单文件，实现了自动创建常用 Bean 的能力，从而简化配置、提高开发效率。**
+
+---
+
+继续提问：https://chatgpt.com/share/687768b5-82c8-8010-8704-25a8db044387

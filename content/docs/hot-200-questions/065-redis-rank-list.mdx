@@ -1,0 +1,111 @@
+---
+title: 065 	如何使用 Redis 快速实现排行榜？
+---
+
+使用 Redis 实现排行榜是一个非常常见且高效的场景，主要利用的是 **`Sorted Set（有序集合）`** 数据结构，它支持按分数自动排序，非常适合排行榜需求。
+
+---
+
+### 🎯 应用场景举例
+
+* 游戏积分排行榜（按得分高低排序）
+* 活跃用户排行榜（按活跃度排序）
+* 热门文章/商品排行榜（按浏览量或购买量排序）
+
+---
+
+## ✅ 一、核心数据结构：`ZSET（Sorted Set）`
+
+每个元素由：
+
+* **成员值（member）**：例如玩家 ID、用户名、文章 ID。
+* **分数（score）**：用于排序的数值，如积分、活跃度、点击量等。
+
+---
+
+## 🛠️ 二、实现步骤
+
+### 1. 添加或更新排行榜成员分数：`ZADD`
+
+```bash
+ZADD leaderboard 100 user:1
+ZADD leaderboard 200 user:2
+ZADD leaderboard 150 user:3
+```
+
+说明：表示用户 1 得分 100，用户 2 得分 200，用户 3 得分 150。
+
+---
+
+### 2. 获取排行榜前 N 名：`ZREVRANGE`
+
+```bash
+ZREVRANGE leaderboard 0 9 WITHSCORES
+```
+
+* `ZREVRANGE`：按分数从高到低排序
+* `0 9`：表示取前 10 名（从第 0 到第 9）
+* `WITHSCORES`：同时返回分数
+
+---
+
+### 3. 获取某个成员的排名：`ZREVRANK`
+
+```bash
+ZREVRANK leaderboard user:3
+```
+
+* 返回 user:3 的排名（从 0 开始，0 表示第一名）
+
+---
+
+### 4. 获取某个成员的分数：`ZSCORE`
+
+```bash
+ZSCORE leaderboard user:3
+```
+
+---
+
+### 5. 增加某个成员的分数：`ZINCRBY`
+
+```bash
+ZINCRBY leaderboard 50 user:1
+```
+
+* 给用户 1 增加 50 分（原本 100，现在变成 150）
+
+---
+
+## 📌 三、可选功能扩展
+
+| 功能          | 命令示例                                                    |
+| ----------- | ------------------------------------------------------- |
+| 删除成员        | `ZREM leaderboard user:2`                               |
+| 获取一定分数范围的成员 | `ZRANGEBYSCORE leaderboard 100 200 WITHSCORES`          |
+| 分页获取排行榜     | `ZREVRANGE leaderboard 10 19 WITHSCORES`（第 2 页，每页 10 条） |
+| 清空排行榜       | `DEL leaderboard`                                       |
+
+---
+
+## 📋 示例：排行榜结构设计建议
+
+| Key 名称             | 描述           |
+| ------------------ | ------------ |
+| `leaderboard`      | 全局排行榜        |
+| `leaderboard:week` | 本周排行榜        |
+| `game:1:rank`      | 某个游戏 ID 的排行榜 |
+
+可结合 `定期清理`、`过期时间` 和 `备份机制` 等方式管理排行榜数据。
+
+---
+
+## 🔐 小贴士
+
+* `ZSET` 是按分数自动排序的，性能非常高，查询是 **O(logN)** 插入也是 **O(logN)**。
+* Redis 是内存数据库，适合实时性高的排行榜需求。
+* 对于大型排行榜（百万用户），可以搭配分页 + 缓存策略，减轻压力。
+
+---
+
+继续提问：https://chatgpt.com/share/68777501-750c-8010-af1a-e0bebc94f2e3

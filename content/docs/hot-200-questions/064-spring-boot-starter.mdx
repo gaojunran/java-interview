@@ -1,0 +1,130 @@
+---
+title: 064 	如何理解 Spring Boot 中的 starter？
+---
+
+在 Spring Boot 中，`starter` 是一种非常核心的概念，它极大地简化了 Spring 应用的依赖管理和自动配置。理解 `starter`，就能真正掌握 Spring Boot 自动化的“魔法”。
+
+---
+
+## 一、什么是 Spring Boot Starter？
+
+**Spring Boot Starter 是一组方便的依赖集合**，它们封装了某一类功能的常用依赖，并通常配合 Spring Boot 的自动配置使用。
+
+例如：
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+
+引入这个 starter，你就自动获得了：
+
+* Spring MVC
+* 内嵌 Tomcat
+* Jackson（JSON 处理）
+* Logging
+* 自动配置（比如 DispatcherServlet、RequestMappingHandlerAdapter 等）
+
+---
+
+## 二、为什么需要 Starter？
+
+传统 Spring 项目开发时，常常面临的问题是：
+
+* 引入依赖繁琐（你得知道用哪个版本的 servlet-api、Tomcat、Jackson 等）
+* 配置复杂（各种 XML 或 Java Config）
+* 容器初始化、Bean 注册全靠手动管理
+
+Spring Boot 的 starter + 自动配置机制解决了这些问题：
+
+* **starter 统一依赖版本**，减少兼容性问题
+* **starter 配合自动配置类**，实现开箱即用（zero config 或 minimal config）
+* **starter 模块化**，按需添加、减小体积
+
+---
+
+## 三、starter 的命名规范
+
+Spring Boot 官方的 starter 通常以：
+
+```
+spring-boot-starter-xxx
+```
+
+常见例子：
+
+| Starter                        | 用途                          |
+| ------------------------------ | --------------------------- |
+| `spring-boot-starter-web`      | 构建 Web 应用（MVC + Tomcat）     |
+| `spring-boot-starter-data-jpa` | JPA（Hibernate）持久层支持         |
+| `spring-boot-starter-security` | Spring Security 安全框架        |
+| `spring-boot-starter-test`     | 测试支持（JUnit、Mockito、AssertJ） |
+
+也可以自己写 starter，命名一般为：
+
+```
+your-company-starter-xxx
+```
+
+---
+
+## 四、starter 背后的原理
+
+Starter 只是依赖的“集合”，真正实现自动装配的是 **Spring Boot 的自动配置机制**，比如：
+
+* `spring-boot-autoconfigure` 提供了大量以 `@Configuration` 注解的自动配置类
+* 配合条件注解如 `@ConditionalOnClass`、`@ConditionalOnProperty` 等来判断是否激活某个配置
+
+例如，`spring-boot-starter-web` 背后会激活：
+
+```java
+@Configuration
+@ConditionalOnClass(Servlet.class)
+@EnableWebMvc
+public class WebMvcAutoConfiguration {
+   // 初始化 DispatcherServlet、ViewResolver 等等
+}
+```
+
+---
+
+## 五、如何自定义一个 Starter？
+
+如果你希望封装一套通用的功能模块供多个项目复用，可以自定义 starter。大致步骤如下：
+
+### 1. 创建两个模块：
+
+* `your-module-starter`: 依赖定义模块（只声明依赖，不包含逻辑）
+* `your-module-autoconfigure`: 自动配置模块（包含配置类、默认 Bean）
+
+### 2. 配置 `spring.factories`（或新版使用 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`）
+
+```properties
+# META-INF/spring.factories
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  com.yourcompany.autoconfig.YourAutoConfiguration
+```
+
+这样，引入你的 starter，就能自动装配配置类，无需写一行配置。
+
+---
+
+## 六、总结
+
+Spring Boot 中的 `starter` 可以理解为：
+
+> 预打包的依赖清单 + 配合自动配置，实现“约定优于配置”的模块化开发体验。
+
+### 它的意义在于：
+
+* 简化依赖管理
+* 提高开发效率
+* 促进项目标准化、模块化
+
+---
+
+如果你想了解某个 starter 背后都自动装了什么，可以看它的 `pom.xml` 和关联的 `AutoConfiguration` 类。
+
+继续提问：https://chatgpt.com/share/6877716c-e818-8010-85cc-19d5ffbeef3e
